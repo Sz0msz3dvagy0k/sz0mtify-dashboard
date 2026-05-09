@@ -4,118 +4,215 @@ use axum::{
     extract::{Path, Query, State},
     Json,
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::services::AppState;
 
-#[derive(Serialize)]
-pub struct ApiResponse<T> {
-    pub data: T,
-}
 #[derive(Deserialize)]
 pub struct SearchQ {
     pub q: String,
 }
 
-pub async fn health() -> Json<Value> {
-    Json(json!({"status":"ok"}))
+fn ok(data: Value) -> Json<Value> {
+    Json(json!({"ok": true, "data": data}))
 }
+
+fn err(message: &str) -> Json<Value> {
+    Json(json!({"ok": false, "error": message}))
+}
+
+pub async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let db_ok = sqlx::query("SELECT 1").execute(&state.pool).await.is_ok();
+    Json(json!({"ok": db_ok, "status": if db_ok { "ok" } else { "degraded" }}))
+}
+
 pub async fn get_settings(State(state): State<Arc<AppState>>) -> Json<Value> {
-    Json(json!({"data": state.settings.get_all(&state.pool).await.unwrap_or_default()}))
+    match state.settings.get_all(&state.pool).await {
+        Ok(settings) => ok(json!(settings)),
+        Err(_) => err("failed_to_load_settings"),
+    }
 }
+
 pub async fn save_settings(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<Value>,
 ) -> Json<Value> {
-    state.settings.save(&state.pool, payload.clone()).await.ok();
-    Json(json!({"ok":true,"data":payload}))
+    match state.settings.save(&state.pool, payload.clone()).await {
+        Ok(_) => ok(payload),
+        Err(_) => err("failed_to_save_settings"),
+    }
 }
-pub async fn sync_subsonic(State(state): State<Arc<AppState>>) -> Json<Value> {
-    Json(json!({"ok": state.sync.sync_subsonic(&state.pool).await.is_ok()}))
-}
-pub async fn sync_lastfm(State(state): State<Arc<AppState>>) -> Json<Value> {
-    Json(json!({"ok": state.sync.sync_lastfm(&state.pool).await.is_ok()}))
-}
-pub async fn sync_all(State(state): State<Arc<AppState>>) -> Json<Value> {
-    let subsonic_ok = state.sync.sync_subsonic(&state.pool).await.is_ok();
-    let lastfm_ok = state.sync.sync_lastfm(&state.pool).await.is_ok();
 
-    Json(json!({
-        "ok": subsonic_ok && lastfm_ok,
-        "data": {
-            "subsonic": subsonic_ok,
-            "lastfm": lastfm_ok
-        }
-    }))
+pub async fn sync_subsonic(State(state): State<Arc<AppState>>) -> Json<Value> {
+    match state.sync.sync_subsonic(&state.pool).await {
+        Ok(_) => ok(json!({"source": "subsonic"})),
+        Err(_) => err("failed_to_sync_subsonic"),
+    }
 }
+
+pub async fn sync_lastfm(State(state): State<Arc<AppState>>) -> Json<Value> {
+    match state.sync.sync_lastfm(&state.pool).await {
+        Ok(_) => ok(json!({"source": "lastfm"})),
+        Err(_) => err("failed_to_sync_lastfm"),
+    }
+}
+
+pub async fn sync_all(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let subsonic = state.sync.sync_subsonic(&state.pool).await.is_ok();
+    let lastfm = state.sync.sync_lastfm(&state.pool).await.is_ok();
+    Json(json!({"ok": subsonic && lastfm, "data": {"subsonic": subsonic, "lastfm": lastfm}}))
+}
+
 pub async fn sync_status(State(state): State<Arc<AppState>>) -> Json<Value> {
-    Json(json!({"data": state.sync.status(&state.pool).await.unwrap_or_default()}))
+    match state.sync.status(&state.pool).await {
+        Ok(status) => ok(status),
+        Err(_) => err("failed_to_load_sync_status"),
+    }
 }
+
+macro_rules! respond_service {
+    ($result:expr, $err:literal) => {
+        match $result.await {
+            Ok(v) => ok(v),
+            Err(_) => err($err),
+        }
+    };
+}
+
 pub async fn library_overview(State(state): State<Arc<AppState>>) -> Json<Value> {
-    Json(json!({"data": state.analytics.overview(&state.pool).await.unwrap()}))
+    respond_service!(
+        state.analytics.overview(&state.pool),
+        "failed_to_load_library_overview"
+    )
 }
 pub async fn tracks(State(state): State<Arc<AppState>>) -> Json<Value> {
-    Json(json!({"data": state.analytics.tracks(&state.pool).await.unwrap()}))
+    respond_service!(state.analytics.tracks(&state.pool), "failed_to_load_tracks")
 }
 pub async fn albums(State(state): State<Arc<AppState>>) -> Json<Value> {
-    Json(json!({"data": state.analytics.albums(&state.pool).await.unwrap()}))
+    respond_service!(state.analytics.albums(&state.pool), "failed_to_load_albums")
 }
 pub async fn album_by_id(State(state): State<Arc<AppState>>, Path(id): Path<i64>) -> Json<Value> {
-    Json(json!({"data": state.analytics.album_by_id(&state.pool,id).await.unwrap()}))
+    respond_service!(
+        state.analytics.album_by_id(&state.pool, id),
+        "failed_to_load_album"
+    )
 }
 pub async fn artists(State(state): State<Arc<AppState>>) -> Json<Value> {
-    Json(json!({"data": state.analytics.artists(&state.pool).await.unwrap()}))
+    respond_service!(
+        state.analytics.artists(&state.pool),
+        "failed_to_load_artists"
+    )
 }
 pub async fn artist_by_id(State(state): State<Arc<AppState>>, Path(id): Path<i64>) -> Json<Value> {
-    Json(json!({"data": state.analytics.artist_by_id(&state.pool,id).await.unwrap()}))
+    respond_service!(
+        state.analytics.artist_by_id(&state.pool, id),
+        "failed_to_load_artist"
+    )
 }
 pub async fn genres(State(state): State<Arc<AppState>>) -> Json<Value> {
-    Json(json!({"data": state.analytics.genres(&state.pool).await.unwrap()}))
+    respond_service!(state.analytics.genres(&state.pool), "failed_to_load_genres")
 }
 pub async fn audio_quality(State(state): State<Arc<AppState>>) -> Json<Value> {
-    Json(json!({"data": state.analytics.audio_quality(&state.pool).await.unwrap()}))
+    respond_service!(
+        state.analytics.audio_quality(&state.pool),
+        "failed_to_load_audio_quality"
+    )
 }
 pub async fn storage(State(state): State<Arc<AppState>>) -> Json<Value> {
-    Json(json!({"data": state.analytics.storage(&state.pool).await.unwrap()}))
+    respond_service!(
+        state.analytics.storage(&state.pool),
+        "failed_to_load_storage"
+    )
 }
 pub async fn metadata_health(State(state): State<Arc<AppState>>) -> Json<Value> {
-    Json(json!({"data": state.analytics.metadata_health(&state.pool).await.unwrap()}))
+    respond_service!(
+        state.analytics.metadata_health(&state.pool),
+        "failed_to_load_metadata_health"
+    )
 }
 pub async fn listening(State(state): State<Arc<AppState>>) -> Json<Value> {
-    Json(json!({"data": state.analytics.listening(&state.pool).await.unwrap()}))
+    respond_service!(
+        state.analytics.listening(&state.pool),
+        "failed_to_load_listening_stats"
+    )
 }
 pub async fn timeline(State(state): State<Arc<AppState>>) -> Json<Value> {
-    Json(json!({"data": state.analytics.timeline(&state.pool).await.unwrap()}))
+    respond_service!(
+        state.analytics.timeline(&state.pool),
+        "failed_to_load_timeline"
+    )
 }
 pub async fn new_releases(State(state): State<Arc<AppState>>) -> Json<Value> {
-    Json(json!({"data": state.discovery.new_releases(&state.pool).await.unwrap()}))
+    respond_service!(
+        state.discovery.new_releases(&state.pool),
+        "failed_to_load_new_releases"
+    )
 }
 pub async fn missing_albums(State(state): State<Arc<AppState>>) -> Json<Value> {
-    Json(json!({"data": state.discovery.missing_albums(&state.pool).await.unwrap()}))
+    respond_service!(
+        state.discovery.missing_albums(&state.pool),
+        "failed_to_load_missing_albums"
+    )
 }
 pub async fn similar_artists(State(state): State<Arc<AppState>>) -> Json<Value> {
-    Json(json!({"data": state.discovery.similar_artists(&state.pool).await.unwrap()}))
+    respond_service!(
+        state.discovery.similar_artists(&state.pool),
+        "failed_to_load_similar_artists"
+    )
 }
+
 pub async fn refresh_discovery(State(state): State<Arc<AppState>>) -> Json<Value> {
-    state.discovery.refresh(&state.pool).await.ok();
-    Json(json!({"ok":true}))
+    match state.discovery.refresh(&state.pool).await {
+        Ok(_) => ok(json!({"refreshed": true})),
+        Err(_) => err("failed_to_refresh_discovery"),
+    }
 }
+
 pub async fn rediscovery(State(state): State<Arc<AppState>>) -> Json<Value> {
-    Json(json!({"data": state.recommendations.rediscovery(&state.pool).await.unwrap()}))
+    respond_service!(
+        state.recommendations.rediscovery(&state.pool),
+        "failed_to_load_rediscovery"
+    )
 }
 pub async fn current_rotation(State(state): State<Arc<AppState>>) -> Json<Value> {
-    Json(json!({"data": state.recommendations.current_rotation(&state.pool).await.unwrap()}))
+    respond_service!(
+        state.recommendations.current_rotation(&state.pool),
+        "failed_to_load_current_rotation"
+    )
 }
-pub async fn favorites(State(state): State<Arc<AppState>>) -> Json<Value> {
-    Json(json!({"data": state.recommendations.favorites(&state.pool).await.unwrap()}))
-}
+
 pub async fn search(
     State(state): State<Arc<AppState>>,
     Query(params): Query<SearchQ>,
 ) -> Json<Value> {
-    Json(json!({"data": state.analytics.search(&state.pool,&params.q).await.unwrap()}))
+    if params.q.trim().is_empty() {
+        return err("missing_query");
+    }
+    respond_service!(
+        state.analytics.search(&state.pool, &params.q),
+        "failed_to_search"
+    )
 }
-pub async fn cover(Path(id): Path<String>) -> Json<Value> {
-    Json(json!({"cover_art_id": id, "url": format!("/mock/cover/{id}")}))
+
+pub async fn cover(
+    State(state): State<Arc<AppState>>,
+    Path(cover_art_id): Path<String>,
+) -> Json<Value> {
+    let album_cover = sqlx::query_as::<_, (i64, String, Option<String>)>(
+        "SELECT id, title, cover_art_url FROM albums WHERE cover_art_id = ? LIMIT 1",
+    )
+    .bind(&cover_art_id)
+    .fetch_optional(&state.pool)
+    .await;
+
+    match album_cover {
+        Ok(Some((album_id, title, cover_art_url))) => ok(
+            json!({"cover_art_id": cover_art_id, "album_id": album_id, "album_title": title, "cover_art_url": cover_art_url}),
+        ),
+        Ok(None) => ok(
+            json!({"cover_art_id": cover_art_id, "cover_art_url": format!("/mock/cover/{cover_art_id}")}),
+        ),
+        Err(_) => err("failed_to_load_cover"),
+    }
 }
