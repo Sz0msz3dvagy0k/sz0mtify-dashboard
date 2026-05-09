@@ -121,12 +121,8 @@ async fn run() -> anyhow::Result<()> {
             "/api/recommendations/current-rotation",
             get(api::handlers::current_rotation),
         )
-        .route(
-            "/api/recommendations/favorites",
-            get(api::handlers::favorites),
-        )
         .route("/api/search", get(api::handlers::search))
-        .route("/api/cover/:id", get(api::handlers::cover))
+        .route("/api/cover/:cover_art_id", get(api::handlers::cover))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state);
