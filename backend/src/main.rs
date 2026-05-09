@@ -17,6 +17,28 @@ use services::{
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::info;
 
+fn ensure_sqlite_parent_dir(database_url: &str) -> anyhow::Result<()> {
+    if !database_url.starts_with("sqlite:") {
+        return Ok(());
+    }
+
+    let raw_path = database_url
+        .trim_start_matches("sqlite://")
+        .trim_start_matches("sqlite:");
+
+    if raw_path.is_empty() || raw_path == ":memory:" {
+        return Ok(());
+    }
+
+    let db_path = raw_path.split('?').next().unwrap_or(raw_path);
+    let path = std::path::Path::new(db_path);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() {
     if let Err(error) = run().await {
@@ -31,6 +53,7 @@ async fn run() -> anyhow::Result<()> {
 
     let database_url =
         env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite://music-dashboard.db".into());
+    ensure_sqlite_parent_dir(&database_url)?;
     let pool = sqlx::SqlitePool::connect(&database_url).await?;
     migrate(&pool).await?;
 
