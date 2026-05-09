@@ -1,0 +1,1 @@
+:root{color-scheme:dark}body{margin:0;background:#050505;color:#f7f7f7;font-family:Inter,system-ui} .container{padding:1rem 2rem} .grid{display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))} .card{border:1px solid #333;padding:1rem;border-radius:14px;background:#111;transition:.2s} .card:hover{transform:translateY(-2px);border-color:#666}

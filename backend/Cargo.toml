@@ -1,0 +1,27 @@
+[package]
+name = "music-dashboard-backend"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+quick-xml = { version = "0.36", features = ["serialize"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio-rustls", "chrono", "uuid"] }
+dotenvy = "0.15"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["serde", "v4"] }
+anyhow = "1"
+thiserror = "1"
+sha1 = "0.10"
+hex = "0.4"
+rand = "0.8"
+
+[dev-dependencies]
+pretty_assertions = "1"
