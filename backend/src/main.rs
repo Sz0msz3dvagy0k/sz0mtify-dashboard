@@ -18,7 +18,14 @@ use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::info;
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() {
+    if let Err(error) = run().await {
+        eprintln!("backend startup failed: {error:#}");
+        std::process::exit(1);
+    }
+}
+
+async fn run() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
     tracing_subscriber::fmt().with_env_filter("info").init();
 
