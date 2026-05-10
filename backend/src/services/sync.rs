@@ -107,27 +107,43 @@ async fn write_sync_state(pool: &sqlx::SqlitePool, id: i64, source: &str, status
 
 async fn fetch_subsonic_album_list(client: &Client, cfg: &SubsonicConfig) -> anyhow::Result<Vec<serde_json::Value>> {
     let url = format!("{}/rest/getAlbumList2", cfg.base_url.trim_end_matches('/'));
-    let response = client
-        .get(url)
-        .query(&[
-            ("u", cfg.username.as_str()),
-            ("p", cfg.password.as_str()),
-            ("v", "1.16.1"),
-            ("c", "music-dashboard"),
-            ("f", "json"),
-            ("type", "newest"),
-            ("size", "500"),
-        ])
-        .send()
-        .await?
-        .error_for_status()?
-        .json::<serde_json::Value>()
-        .await?;
-    let albums = response["subsonic-response"]["albumList2"]["album"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
-    Ok(albums)
+    let page_size = 500_i64;
+    let mut offset = 0_i64;
+    let mut all_albums = Vec::new();
+
+    loop {
+        let response = client
+            .get(&url)
+            .query(&[
+                ("u", cfg.username.as_str()),
+                ("p", cfg.password.as_str()),
+                ("v", "1.16.1"),
+                ("c", "music-dashboard"),
+                ("f", "json"),
+                ("type", "newest"),
+                ("size", "500"),
+                ("offset", &offset.to_string()),
+            ])
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<serde_json::Value>()
+            .await?;
+
+        let albums = response["subsonic-response"]["albumList2"]["album"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        let page_count = albums.len() as i64;
+        all_albums.extend(albums);
+
+        if page_count < page_size {
+            break;
+        }
+        offset += page_size;
+    }
+
+    Ok(all_albums)
 }
 
 async fn import_subsonic_album(pool: &sqlx::SqlitePool, client: &Client, cfg: &SubsonicConfig, album: &serde_json::Value) -> anyhow::Result<i64> {
