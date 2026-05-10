@@ -59,12 +59,27 @@ pub async fn sync_lastfm(State(state): State<Arc<AppState>>) -> Json<Value> {
 }
 
 pub async fn sync_all(State(state): State<Arc<AppState>>) -> Json<Value> {
-    let subsonic = state.sync.sync_subsonic(&state.pool).await.is_ok();
-    let lastfm = state.sync.sync_lastfm(&state.pool).await.is_ok();
-    let track_count = state.sync.track_count(&state.pool).await.unwrap_or_default();
-    Json(
-        json!({"ok": subsonic && lastfm, "data": {"subsonic": subsonic, "lastfm": lastfm, "track_count": track_count}}),
-    )
+    let subsonic_result = state.sync.sync_subsonic(&state.pool).await;
+    let lastfm_result = state.sync.sync_lastfm(&state.pool).await;
+    let track_count_result = state.sync.track_count(&state.pool).await;
+
+    let subsonic_error = subsonic_result.as_ref().err().map(|e| e.to_string());
+    let lastfm_error = lastfm_result.as_ref().err().map(|e| e.to_string());
+    let track_count_error = track_count_result.as_ref().err().map(|e| e.to_string());
+
+    Json(json!({
+        "ok": subsonic_result.is_ok() && lastfm_result.is_ok() && track_count_result.is_ok(),
+        "data": {
+            "subsonic": subsonic_result.is_ok(),
+            "lastfm": lastfm_result.is_ok(),
+            "track_count": track_count_result.unwrap_or_default(),
+            "errors": {
+                "subsonic": subsonic_error,
+                "lastfm": lastfm_error,
+                "track_count": track_count_error
+            }
+        }
+    }))
 }
 
 pub async fn sync_status(State(state): State<Arc<AppState>>) -> Json<Value> {

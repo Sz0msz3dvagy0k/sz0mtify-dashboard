@@ -50,8 +50,9 @@ async fn main() {
 
 async fn run() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
-    let log_filter = env::var("RUST_LOG")
-        .unwrap_or_else(|_| "debug,tower_http=debug,sqlx=info,music_listening_dashboard=debug".into());
+    let log_filter = env::var("RUST_LOG").unwrap_or_else(|_| {
+        "debug,tower_http=debug,sqlx=info,music_listening_dashboard=debug".into()
+    });
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::new(log_filter))
         .with_target(true)

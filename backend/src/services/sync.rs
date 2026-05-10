@@ -12,12 +12,31 @@ impl SyncService {
     }
     pub async fn sync_subsonic(&self, pool: &sqlx::SqlitePool) -> anyhow::Result<()> {
         info!("starting Subsonic sync");
-        let cfg = SubsonicConfig::load(pool).await?;
+        let cfg = match SubsonicConfig::load(pool).await {
+            Ok(cfg) => cfg,
+            Err(error) => {
+                write_sync_state(pool, 1, "subsonic", "error", Some(&error.to_string())).await?;
+                return Err(error);
+            }
+        };
         let client = Client::new();
-        let albums = fetch_subsonic_album_list(&client, &cfg).await?;
+        let albums = match fetch_subsonic_album_list(&client, &cfg).await {
+            Ok(albums) => albums,
+            Err(error) => {
+                write_sync_state(pool, 1, "subsonic", "error", Some(&error.to_string())).await?;
+                return Err(error);
+            }
+        };
         let mut imported_tracks = 0_i64;
         for album in albums {
-            imported_tracks += import_subsonic_album(pool, &client, &cfg, &album).await?;
+            match import_subsonic_album(pool, &client, &cfg, &album).await {
+                Ok(inserted) => imported_tracks += inserted,
+                Err(error) => {
+                    write_sync_state(pool, 1, "subsonic", "error", Some(&error.to_string()))
+                        .await?;
+                    return Err(error);
+                }
+            }
         }
         write_sync_state(pool, 1, "subsonic", "ok", None).await?;
         info!(imported_tracks, "completed Subsonic sync");
@@ -27,15 +46,25 @@ impl SyncService {
         info!("starting Last.fm metadata sync");
         let api_key = setting_or_env(pool, "lastfm_api_key", "LASTFM_API_KEY")
             .await?
-            .ok_or_else(|| anyhow!("missing Last.fm API key (settings.lastfm_api_key or LASTFM_API_KEY)"))?;
+            .ok_or_else(|| {
+                anyhow!("missing Last.fm API key (settings.lastfm_api_key or LASTFM_API_KEY)")
+            })?;
         let client = Client::new();
         let artists = sqlx::query_as::<_, (i64, String)>("SELECT id, name FROM artists")
             .fetch_all(pool)
             .await?;
         let mut updated = 0_i64;
         for (artist_id, name) in artists {
-            if sync_lastfm_artist(pool, &client, &api_key, artist_id, &name).await? {
-                updated += 1;
+            match sync_lastfm_artist(pool, &client, &api_key, artist_id, &name).await {
+                Ok(changed) => {
+                    if changed {
+                        updated += 1;
+                    }
+                }
+                Err(error) => {
+                    write_sync_state(pool, 2, "lastfm", "error", Some(&error.to_string())).await?;
+                    return Err(error);
+                }
             }
         }
         write_sync_state(pool, 2, "lastfm", "ok", None).await?;
@@ -70,20 +99,36 @@ struct SubsonicConfig {
 
 impl SubsonicConfig {
     async fn load(pool: &sqlx::SqlitePool) -> anyhow::Result<Self> {
-        let base_url = setting_or_env(pool, "subsonic_url", "SUBSONIC_URL")
-            .await?
-            .ok_or_else(|| anyhow!("missing subsonic url (settings.subsonic_url or SUBSONIC_URL)"))?;
+        let base_url = setting_or_env_multi(
+            pool,
+            &["subsonic_base_url", "subsonic_url"],
+            &["SUBSONIC_BASE_URL", "SUBSONIC_URL"],
+        )
+        .await?
+        .ok_or_else(|| {
+            anyhow!(
+                "missing subsonic base url (settings.subsonic_base_url/settings.subsonic_url or SUBSONIC_BASE_URL/SUBSONIC_URL)"
+            )
+        })?;
         let username = setting_or_env(pool, "subsonic_username", "SUBSONIC_USERNAME")
             .await?
             .ok_or_else(|| anyhow!("missing subsonic username"))?;
         let password = setting_or_env(pool, "subsonic_password", "SUBSONIC_PASSWORD")
             .await?
             .ok_or_else(|| anyhow!("missing subsonic password"))?;
-        Ok(Self { base_url, username, password })
+        Ok(Self {
+            base_url,
+            username,
+            password,
+        })
     }
 }
 
-async fn setting_or_env(pool: &sqlx::SqlitePool, key: &str, env_key: &str) -> anyhow::Result<Option<String>> {
+async fn setting_or_env(
+    pool: &sqlx::SqlitePool,
+    key: &str,
+    env_key: &str,
+) -> anyhow::Result<Option<String>> {
     let value: Option<(String,)> = sqlx::query_as("SELECT value FROM settings WHERE key = ?")
         .bind(key)
         .fetch_optional(pool)
@@ -94,7 +139,39 @@ async fn setting_or_env(pool: &sqlx::SqlitePool, key: &str, env_key: &str) -> an
     Ok(env::var(env_key).ok())
 }
 
-async fn write_sync_state(pool: &sqlx::SqlitePool, id: i64, source: &str, status: &str, error_message: Option<&str>) -> anyhow::Result<()> {
+async fn setting_or_env_multi(
+    pool: &sqlx::SqlitePool,
+    keys: &[&str],
+    env_keys: &[&str],
+) -> anyhow::Result<Option<String>> {
+    for key in keys {
+        let value: Option<(String,)> = sqlx::query_as("SELECT value FROM settings WHERE key = ?")
+            .bind(key)
+            .fetch_optional(pool)
+            .await?;
+        if let Some((v,)) = value {
+            return Ok(Some(v.trim_matches('"').to_string()));
+        }
+    }
+
+    for env_key in env_keys {
+        if let Ok(value) = env::var(env_key) {
+            if !value.trim().is_empty() {
+                return Ok(Some(value));
+            }
+        }
+    }
+
+    Ok(None)
+}
+
+async fn write_sync_state(
+    pool: &sqlx::SqlitePool,
+    id: i64,
+    source: &str,
+    status: &str,
+    error_message: Option<&str>,
+) -> anyhow::Result<()> {
     sqlx::query("INSERT OR REPLACE INTO sync_state (id,source,last_sync_at,status,error_message) VALUES (?,?,datetime('now'),?,?)")
         .bind(id)
         .bind(source)
@@ -105,7 +182,10 @@ async fn write_sync_state(pool: &sqlx::SqlitePool, id: i64, source: &str, status
     Ok(())
 }
 
-async fn fetch_subsonic_album_list(client: &Client, cfg: &SubsonicConfig) -> anyhow::Result<Vec<serde_json::Value>> {
+async fn fetch_subsonic_album_list(
+    client: &Client,
+    cfg: &SubsonicConfig,
+) -> anyhow::Result<Vec<serde_json::Value>> {
     let url = format!("{}/rest/getAlbumList2", cfg.base_url.trim_end_matches('/'));
     let page_size = 500_i64;
     let mut offset = 0_i64;
@@ -130,6 +210,21 @@ async fn fetch_subsonic_album_list(client: &Client, cfg: &SubsonicConfig) -> any
             .json::<serde_json::Value>()
             .await?;
 
+        let status = response["subsonic-response"]["status"]
+            .as_str()
+            .unwrap_or("unknown");
+        if status != "ok" {
+            let message = response["subsonic-response"]["error"]["message"]
+                .as_str()
+                .unwrap_or("unknown subsonic error");
+            let code = response["subsonic-response"]["error"]["code"]
+                .as_i64()
+                .unwrap_or(0);
+            return Err(anyhow!(
+                "Subsonic getAlbumList2 failed: code={code} message={message}"
+            ));
+        }
+
         let albums = response["subsonic-response"]["albumList2"]["album"]
             .as_array()
             .cloned()
@@ -146,7 +241,12 @@ async fn fetch_subsonic_album_list(client: &Client, cfg: &SubsonicConfig) -> any
     Ok(all_albums)
 }
 
-async fn import_subsonic_album(pool: &sqlx::SqlitePool, client: &Client, cfg: &SubsonicConfig, album: &serde_json::Value) -> anyhow::Result<i64> {
+async fn import_subsonic_album(
+    pool: &sqlx::SqlitePool,
+    client: &Client,
+    cfg: &SubsonicConfig,
+    album: &serde_json::Value,
+) -> anyhow::Result<i64> {
     let album_id = album["id"].as_str().unwrap_or_default();
     if album_id.is_empty() {
         return Ok(0);
@@ -195,7 +295,24 @@ async fn import_subsonic_album(pool: &sqlx::SqlitePool, client: &Client, cfg: &S
         .json::<serde_json::Value>()
         .await
         .context("failed to parse getAlbum response")?;
-    let songs = response["subsonic-response"]["album"]["song"].as_array().cloned().unwrap_or_default();
+    let status = response["subsonic-response"]["status"]
+        .as_str()
+        .unwrap_or("unknown");
+    if status != "ok" {
+        let message = response["subsonic-response"]["error"]["message"]
+            .as_str()
+            .unwrap_or("unknown subsonic error");
+        let code = response["subsonic-response"]["error"]["code"]
+            .as_i64()
+            .unwrap_or(0);
+        return Err(anyhow!(
+            "Subsonic getAlbum failed for album_id={album_id}: code={code} message={message}"
+        ));
+    }
+    let songs = response["subsonic-response"]["album"]["song"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
     let mut inserted = 0_i64;
     for song in songs {
         sqlx::query("INSERT INTO tracks(subsonic_id,title,artist_id,album_id,duration_seconds,track_number,disc_number,year,genre,file_path,suffix,content_type,size_bytes,bit_rate,sampling_rate,play_count,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now')) ON CONFLICT(subsonic_id) DO UPDATE SET title=excluded.title, artist_id=excluded.artist_id, album_id=excluded.album_id, duration_seconds=excluded.duration_seconds, track_number=excluded.track_number, disc_number=excluded.disc_number, year=excluded.year, genre=excluded.genre, file_path=excluded.file_path, suffix=excluded.suffix, content_type=excluded.content_type, size_bytes=excluded.size_bytes, bit_rate=excluded.bit_rate, sampling_rate=excluded.sampling_rate, play_count=excluded.play_count")
@@ -222,7 +339,13 @@ async fn import_subsonic_album(pool: &sqlx::SqlitePool, client: &Client, cfg: &S
     Ok(inserted)
 }
 
-async fn sync_lastfm_artist(pool: &sqlx::SqlitePool, client: &Client, api_key: &str, artist_id: i64, artist_name: &str) -> anyhow::Result<bool> {
+async fn sync_lastfm_artist(
+    pool: &sqlx::SqlitePool,
+    client: &Client,
+    api_key: &str,
+    artist_id: i64,
+    artist_name: &str,
+) -> anyhow::Result<bool> {
     let response = client
         .get("https://ws.audioscrobbler.com/2.0/")
         .query(&[
@@ -237,14 +360,23 @@ async fn sync_lastfm_artist(pool: &sqlx::SqlitePool, client: &Client, api_key: &
         .json::<serde_json::Value>()
         .await?;
     let artist = &response["artist"];
+    if let Some(message) = response["message"].as_str() {
+        return Err(anyhow!(
+            "Last.fm artist.getinfo failed for '{artist_name}': {message}"
+        ));
+    }
     if artist.is_null() {
         warn!(artist_name, "lastfm artist not found");
         return Ok(false);
     }
     let url = artist["url"].as_str();
     let mbid = artist["mbid"].as_str();
-    let listeners = artist["stats"]["listeners"].as_str().and_then(|s| s.parse::<i64>().ok());
-    let playcount = artist["stats"]["playcount"].as_str().and_then(|s| s.parse::<i64>().ok());
+    let listeners = artist["stats"]["listeners"]
+        .as_str()
+        .and_then(|s| s.parse::<i64>().ok());
+    let playcount = artist["stats"]["playcount"]
+        .as_str()
+        .and_then(|s| s.parse::<i64>().ok());
     let bio = artist["bio"]["summary"].as_str();
     sqlx::query("UPDATE artists SET lastfm_artist_url=?, lastfm_listeners=?, lastfm_playcount=?, mbid=COALESCE(NULLIF(?, ''), mbid), bio_summary=COALESCE(?, bio_summary), updated_at=datetime('now') WHERE id=?")
         .bind(url)
