@@ -1,5 +1,6 @@
 pub mod analytics;
 pub mod discovery;
+pub mod lastfm;
 pub mod recommendation;
 pub mod settings;
 pub mod sync;
@@ -16,4 +17,5 @@ pub struct AppState {
     pub settings: settings::SettingsService,
 }
 
+#[allow(dead_code)]
 pub type SharedState = Arc<AppState>;

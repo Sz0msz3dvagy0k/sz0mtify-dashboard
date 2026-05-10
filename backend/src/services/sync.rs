@@ -93,15 +93,15 @@ impl SyncService {
 }
 
 #[derive(Clone, Debug)]
-struct SubsonicConfig {
-    base_url: String,
+pub(crate) struct SubsonicConfig {
+    pub(crate) base_url: String,
     username: String,
     password: String,
     api_version: String,
 }
 
 impl SubsonicConfig {
-    async fn load(pool: &sqlx::SqlitePool) -> anyhow::Result<Self> {
+    pub(crate) async fn load(pool: &sqlx::SqlitePool) -> anyhow::Result<Self> {
         let base_url = setting_or_env_any(
             pool,
             &["subsonic_base_url", "subsonic_url"],
@@ -131,7 +131,7 @@ impl SubsonicConfig {
     }
 }
 
-async fn setting_or_env(
+pub(crate) async fn setting_or_env(
     pool: &sqlx::SqlitePool,
     key: &str,
     env_key: &str,
@@ -372,7 +372,7 @@ async fn sync_lastfm_artist(
     Ok(true)
 }
 
-fn subsonic_auth_query(cfg: &SubsonicConfig) -> Vec<(String, String)> {
+pub(crate) fn subsonic_auth_query(cfg: &SubsonicConfig) -> Vec<(String, String)> {
     vec![
         ("u".to_string(), cfg.username.clone()),
         ("p".to_string(), cfg.password.clone()),

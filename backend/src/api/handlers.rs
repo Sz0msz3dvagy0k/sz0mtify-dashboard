@@ -1,19 +1,36 @@
 use std::sync::Arc;
 
 use axum::{
+    body::Bytes,
     extract::{Path, Query, State},
-    http::StatusCode,
-    response::IntoResponse,
+    http::{
+        header::{CACHE_CONTROL, CONTENT_TYPE, ETAG},
+        HeaderMap, HeaderValue, StatusCode,
+    },
+    response::{IntoResponse, Response},
     Json,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::services::AppState;
+use crate::services::discovery::{DiscoveryListOptions, DiscoveryRefreshOptions};
+use crate::services::{sync::SubsonicConfig, AppState};
 
 #[derive(Deserialize)]
 pub struct SearchQ {
     pub q: String,
+}
+
+#[derive(Deserialize)]
+pub struct DiscoveryQ {
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+    pub include_owned: Option<bool>,
+}
+
+#[derive(Deserialize)]
+pub struct DiscoveryRefreshQ {
+    pub limit: Option<i64>,
 }
 
 fn ok(data: Value) -> Json<Value> {
@@ -190,29 +207,58 @@ pub async fn timeline(State(state): State<Arc<AppState>>) -> Json<Value> {
         "failed_to_load_timeline"
     )
 }
-pub async fn new_releases(State(state): State<Arc<AppState>>) -> Json<Value> {
+pub async fn new_releases(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<DiscoveryQ>,
+) -> Json<Value> {
     respond_service!(
-        state.discovery.new_releases(&state.pool),
+        state
+            .discovery
+            .new_releases(&state.pool, discovery_options(params)),
         "failed_to_load_new_releases"
     )
 }
-pub async fn missing_albums(State(state): State<Arc<AppState>>) -> Json<Value> {
+pub async fn missing_albums(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<DiscoveryQ>,
+) -> Json<Value> {
     respond_service!(
-        state.discovery.missing_albums(&state.pool),
+        state
+            .discovery
+            .missing_albums(&state.pool, discovery_options(params)),
         "failed_to_load_missing_albums"
     )
 }
-pub async fn similar_artists(State(state): State<Arc<AppState>>) -> Json<Value> {
+pub async fn similar_artists(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<DiscoveryQ>,
+) -> Json<Value> {
     respond_service!(
-        state.discovery.similar_artists(&state.pool),
+        state
+            .discovery
+            .similar_artists(&state.pool, discovery_options(params)),
         "failed_to_load_similar_artists"
     )
 }
 
-pub async fn refresh_discovery(State(state): State<Arc<AppState>>) -> Json<Value> {
-    match state.discovery.refresh(&state.pool).await {
-        Ok(_) => ok(json!({"refreshed": true})),
-        Err(_) => err("failed_to_refresh_discovery"),
+pub async fn refresh_discovery(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<DiscoveryRefreshQ>,
+) -> Json<Value> {
+    let options = DiscoveryRefreshOptions {
+        limit: params.limit.unwrap_or(50).clamp(1, 200),
+    };
+    match state.discovery.refresh(&state.pool, options).await {
+        Ok(value) => ok(value),
+        Err(error) => err(&format!("failed_to_refresh_discovery: {error}")),
+    }
+}
+
+fn discovery_options(params: DiscoveryQ) -> DiscoveryListOptions {
+    DiscoveryListOptions {
+        limit: params.limit.unwrap_or(100).clamp(1, 500),
+        offset: params.offset.unwrap_or(0).max(0),
+        include_owned: params.include_owned.unwrap_or(false),
     }
 }
 
@@ -245,21 +291,163 @@ pub async fn search(
 pub async fn cover(
     State(state): State<Arc<AppState>>,
     Path(cover_art_id): Path<String>,
-) -> Json<Value> {
-    let album_cover = sqlx::query_as::<_, (i64, String, Option<String>)>(
-        "SELECT id, title, cover_art_url FROM albums WHERE cover_art_id = ? LIMIT 1",
-    )
-    .bind(&cover_art_id)
-    .fetch_optional(&state.pool)
-    .await;
+) -> Response {
+    if !is_valid_cover_art_id(&cover_art_id) {
+        return (StatusCode::BAD_REQUEST, err("invalid_cover_art_id")).into_response();
+    }
 
-    match album_cover {
-        Ok(Some((album_id, title, cover_art_url))) => ok(
-            json!({"cover_art_id": cover_art_id, "album_id": album_id, "album_title": title, "cover_art_url": cover_art_url}),
-        ),
-        Ok(None) => ok(
-            json!({"cover_art_id": cover_art_id, "cover_art_url": format!("/mock/cover/{cover_art_id}")}),
-        ),
-        Err(_) => err("failed_to_load_cover"),
+    let exists =
+        sqlx::query_as::<_, (i64,)>("SELECT id FROM albums WHERE cover_art_id = ? LIMIT 1")
+            .bind(&cover_art_id)
+            .fetch_optional(&state.pool)
+            .await;
+    match exists {
+        Ok(Some(_)) => {}
+        Ok(None) => return (StatusCode::NOT_FOUND, err("cover_art_not_found")).into_response(),
+        Err(_) => return err("failed_to_load_cover").into_response(),
+    }
+
+    match fetch_cover_art(&state.pool, &cover_art_id).await {
+        Ok((content_type, bytes)) => {
+            let mut headers = HeaderMap::new();
+            headers.insert(
+                CONTENT_TYPE,
+                HeaderValue::from_str(&content_type)
+                    .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
+            );
+            headers.insert(
+                CACHE_CONTROL,
+                HeaderValue::from_static("public, max-age=86400, stale-while-revalidate=604800"),
+            );
+            if let Ok(etag) =
+                HeaderValue::from_str(&format!("\"{}-{}\"", cover_art_id, bytes.len()))
+            {
+                headers.insert(ETAG, etag);
+            }
+            (StatusCode::OK, headers, bytes).into_response()
+        }
+        Err(error) if error.to_string().contains("not found") => {
+            (StatusCode::NOT_FOUND, err("cover_art_not_found")).into_response()
+        }
+        Err(error) => (
+            StatusCode::BAD_GATEWAY,
+            err(&format!("failed_to_fetch_cover_art: {error}")),
+        )
+            .into_response(),
+    }
+}
+
+fn is_valid_cover_art_id(cover_art_id: &str) -> bool {
+    !cover_art_id.is_empty()
+        && cover_art_id.len() <= 256
+        && cover_art_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+}
+
+async fn fetch_cover_art(
+    pool: &sqlx::SqlitePool,
+    cover_art_id: &str,
+) -> anyhow::Result<(String, Bytes)> {
+    let cfg = SubsonicConfig::load(pool).await?;
+    let url = format!("{}/rest/getCoverArt", cfg.base_url.trim_end_matches('/'));
+    let mut query = crate::services::sync::subsonic_auth_query(&cfg);
+    query.push(("id".to_string(), cover_art_id.to_string()));
+    let response = reqwest::Client::new().get(url).query(&query).send().await?;
+    let status = response.status();
+    if status == reqwest::StatusCode::NOT_FOUND {
+        anyhow::bail!("cover art not found");
+    }
+    if !status.is_success() {
+        anyhow::bail!("Subsonic getCoverArt returned HTTP {status}");
+    }
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(infer_image_content_type)
+        .unwrap_or_else(|| "application/octet-stream".to_string());
+    let bytes = response.bytes().await?;
+    if bytes.is_empty() {
+        anyhow::bail!("cover art not found");
+    }
+    Ok((content_type, bytes))
+}
+
+fn infer_image_content_type(content_type: &str) -> String {
+    let content_type = content_type
+        .split(';')
+        .next()
+        .unwrap_or(content_type)
+        .trim();
+    match content_type {
+        "image/jpeg" | "image/png" | "image/webp" | "image/gif" => content_type.to_string(),
+        _ => "application/octet-stream".to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sqlx::sqlite::SqlitePoolOptions;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    async fn test_pool() -> sqlx::SqlitePool {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        pool
+    }
+
+    #[tokio::test]
+    async fn cover_fetch_returns_image_bytes_with_image_content_type() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buffer = [0_u8; 2048];
+            let _ = socket.read(&mut buffer).await.unwrap();
+            let body = b"\x89PNG\r\n\x1a\n";
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: {}\r\n\r\n",
+                body.len()
+            );
+            socket.write_all(response.as_bytes()).await.unwrap();
+            socket.write_all(body).await.unwrap();
+        });
+
+        let pool = test_pool().await;
+        sqlx::query(
+            "INSERT INTO settings(key,value) VALUES
+             ('subsonic_base_url', ?),
+             ('subsonic_username', 'user'),
+             ('subsonic_password', 'pass')",
+        )
+        .bind(format!("http://{addr}"))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let (content_type, bytes) = fetch_cover_art(&pool, "valid-cover").await.unwrap();
+        server.await.unwrap();
+
+        assert_eq!(content_type, "image/png");
+        assert_eq!(&bytes[..], b"\x89PNG\r\n\x1a\n");
+        assert_ne!(content_type, "application/json");
+    }
+
+    #[test]
+    fn cover_content_type_falls_back_for_non_images() {
+        assert_eq!(
+            infer_image_content_type("application/json"),
+            "application/octet-stream"
+        );
+        assert_eq!(
+            infer_image_content_type("image/jpeg; charset=utf-8"),
+            "image/jpeg"
+        );
     }
 }

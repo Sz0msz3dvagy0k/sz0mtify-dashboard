@@ -1,18 +1,39 @@
 pub fn normalize_name(input: &str) -> String {
-    let lower = input.to_lowercase();
-    let cleaned = [
+    let lower = input.to_lowercase().replace('&', " and ");
+    let stripped_suffixes = [
         "(remastered)",
+        "remastered",
+        "remaster",
         "deluxe edition",
+        "expanded edition",
+        "anniversary edition",
         "explicit",
+        "clean",
+        "radio edit",
+        "single version",
         "mono",
         "stereo",
         "live",
     ]
     .iter()
     .fold(lower, |acc, s| acc.replace(s, ""));
-    cleaned.split_whitespace().collect::<Vec<_>>().join(" ")
+    let punctuation_removed = stripped_suffixes
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c.is_whitespace() {
+                c
+            } else {
+                ' '
+            }
+        })
+        .collect::<String>();
+    punctuation_removed
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn playlist_score(
     meta: f64,
     play_count: f64,
@@ -41,5 +62,10 @@ mod tests {
     #[test]
     fn normalize() {
         assert_eq!(normalize_name("Song (Remastered) Live"), "song");
+        assert_eq!(
+            normalize_name("THE Song: Deluxe Edition - Explicit [Stereo]"),
+            "the song"
+        );
+        assert_eq!(normalize_name("Track, Radio Edit"), "track");
     }
 }

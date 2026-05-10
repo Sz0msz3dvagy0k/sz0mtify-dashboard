@@ -30,6 +30,7 @@ impl RecommendationService {
         Ok(json!(rows))
     }
 
+    #[allow(dead_code)]
     pub async fn favorites(&self, p: &sqlx::SqlitePool) -> anyhow::Result<serde_json::Value> {
         let rows = sqlx::query_as::<_, (i64, String, Option<i64>, Option<i64>)>(
             "SELECT id, title, rating, play_count FROM tracks WHERE COALESCE(starred,0)=1 OR COALESCE(rating,0)>=4 ORDER BY COALESCE(rating,0) DESC, COALESCE(play_count,0) DESC LIMIT 100",

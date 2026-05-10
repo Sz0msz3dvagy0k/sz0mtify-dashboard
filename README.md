@@ -35,10 +35,52 @@ npm run lint
 npm run format
 ```
 
-## Implemented endpoints
-Includes health, settings, sync, library, stats, discovery, recommendations, search, and cover proxy placeholders.
+## Backend behavior
 
-> Note: Subsonic/Last.fm ingestion is currently a placeholder. Sync endpoints currently update sync status and return explicit "not implemented" errors until source API integration is added.
+The backend syncs library metadata from a Subsonic/Navidrome server and enriches artists through Last.fm. Configure:
+
+- `SUBSONIC_BASE_URL`
+- `SUBSONIC_USERNAME`
+- `SUBSONIC_PASSWORD`
+- `SUBSONIC_API_VERSION` optional, defaults to `1.16.1`
+- `LASTFM_API_KEY`
+
+### Storage stats
+
+`GET /api/stats/storage` treats track file size as the source of truth. `total_storage_bytes` and `tracks_size_bytes` both equal `SUM(tracks.size_bytes)`. Album, artist, genre, format, content-type, and extension storage values are aggregations over tracks, so album totals are not added again to total storage.
+
+### Listening stats
+
+`GET /api/stats/listening` prefers timestamped rows in `plays`. If `plays` is empty, it falls back to imported Subsonic/Navidrome `tracks.play_count`. If neither source has data, top lists are empty and `data_source` is `"none"`. Timeline data is only generated from timestamped play events.
+
+### Cover art
+
+`GET /api/cover/:cover_art_id` proxies Subsonic/Navidrome `getCoverArt` and returns image bytes with an image `Content-Type` when available. Credentials stay server-side and are never exposed in response URLs, bodies, or headers. Invalid or missing cover IDs return JSON errors.
+
+### Discovery
+
+`POST /api/discovery/refresh` analyzes favorite local artists and stores Last.fm-powered discovery rows in SQLite. It calls and caches:
+
+- `artist.getInfo`
+- `artist.getTopAlbums`
+- `artist.getTopTracks`
+- `artist.getSimilar`
+
+Last.fm responses are cached in `api_cache`; default TTL is 7 days for artist info/top albums/top tracks and 14 days for similar artists. Cache keys include the Last.fm method and normalized parameters. Individual Last.fm failures are recorded in the refresh response and do not abort the whole refresh.
+
+Discovery read endpoints return stored rows:
+
+- `GET /api/discovery/missing-albums`
+- `GET /api/discovery/new-releases`
+- `GET /api/discovery/similar-artists`
+
+They support `limit`, `offset`, and `include_owned=true`. Owned items are hidden by default where applicable. Results include match status, confidence score, source URL, cover URL, reason, and generated timestamp.
+
+Known limitations:
+
+- Last.fm release dates may be incomplete or absent.
+- Last.fm top albums/tracks are popularity lists, not guaranteed chronological new releases.
+- Discovery matching is fuzzy and confidence-based.
 
 ## Seed/mock mode
 Set `SEED_MODE=true` in `.env` to allow frontend development without valid API credentials.
