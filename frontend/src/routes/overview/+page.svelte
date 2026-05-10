@@ -45,6 +45,8 @@
 	$: healthScore = overview ? Math.round(((overview.total_tracks - metadata.missing_genre) / Math.max(overview.total_tracks, 1)) * 100) : 0;
 	$: genreData = storage?.size_by_genre.slice(0, 8).map(([name, bytes]) => ({ name: name ?? 'Unknown', value: bytes })) ?? [];
 	$: artistMap = new Map(artists.map(([id, name]) => [id, name]));
+
+	onMount(load);
 </script>
 
 {#if loading}
@@ -81,7 +83,7 @@
 			<SectionHeader title="Recently Indexed Albums" eyebrow={`${albums.length} shown`} action="All albums" href="/albums" />
 			<div class="album-strip">
 				{#each albums.slice(0, 6) as album}
-					<AlbumCard id={album[0]} title={album[1]} artist={artistMap.get(album[2] ?? -1) ?? 'Unknown artist'} year={album[3]} genre={album[4]} />
+					<AlbumCard id={album[0]} title={album[1]} artist={artistMap.get(album[2] ?? -1) ?? 'Unknown artist'} year={album[3]} genre={album[4]} coverArtId={album[5]} />
 				{/each}
 			</div>
 		</div>

@@ -3,13 +3,28 @@
 	import { initials } from '$lib/format';
 
 	export let src: string | null = null;
+	export let fallbackSrc: string | null = null;
 	export let alt = '';
 	export let kind: 'album' | 'artist' = 'album';
-	let failed = false;
+	let failedPrimary = false;
+	let failedFallback = false;
+	let lastSrc: string | null = null;
+	let lastFallbackSrc: string | null = null;
+
+	$: if (src !== lastSrc) {
+		lastSrc = src;
+		failedPrimary = false;
+	}
+	$: if (fallbackSrc !== lastFallbackSrc) {
+		lastFallbackSrc = fallbackSrc;
+		failedFallback = false;
+	}
 </script>
 
-{#if src && !failed}
-	<img class="art-image" {src} {alt} loading="lazy" on:error={() => (failed = true)} />
+{#if src && !failedPrimary}
+	<img class="art-image" {src} {alt} loading="lazy" on:error={() => (failedPrimary = true)} />
+{:else if fallbackSrc && !failedFallback}
+	<img class="art-image" src={fallbackSrc} {alt} loading="lazy" on:error={() => (failedFallback = true)} />
 {:else}
 	<div class:artist={kind === 'artist'} class="art-fallback" aria-label={alt}>
 		{#if kind === 'artist'}

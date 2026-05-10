@@ -37,8 +37,46 @@ impl AnalyticsService {
     }
 
     pub async fn albums(&self, p: &sqlx::SqlitePool) -> anyhow::Result<serde_json::Value> {
-        let rows = sqlx::query_as::<_, (i64, String, Option<i64>, Option<i64>, Option<String>)>(
-            "SELECT id, title, artist_id, year, genre FROM albums ORDER BY id DESC LIMIT 300",
+        let rows =
+            sqlx::query_as::<_, (i64, String, Option<i64>, Option<i64>, Option<String>, Option<String>)>(
+                "SELECT id, title, artist_id, year, genre, cover_art_id FROM albums ORDER BY id DESC LIMIT 300",
+            )
+            .fetch_all(p)
+            .await?;
+        Ok(json!(rows))
+    }
+
+    pub async fn artists(&self, p: &sqlx::SqlitePool) -> anyhow::Result<serde_json::Value> {
+        let rows = sqlx::query_as::<
+            _,
+            (
+                i64,
+                String,
+                Option<i64>,
+                Option<i64>,
+                Option<i64>,
+                Option<String>,
+                Option<String>,
+            ),
+        >(
+            "SELECT ar.id,
+                    ar.name,
+                    ar.album_count,
+                    ar.track_count,
+                    ar.play_count,
+                    ar.image_url,
+                    (
+                        SELECT al.cover_art_id
+                        FROM albums al
+                        WHERE al.artist_id = ar.id
+                          AND al.cover_art_id IS NOT NULL
+                          AND al.cover_art_id != ''
+                        ORDER BY al.year DESC, al.id DESC
+                        LIMIT 1
+                    ) AS representative_cover_art_id
+             FROM artists ar
+             ORDER BY ar.name ASC
+             LIMIT 300",
         )
         .fetch_all(p)
         .await?;
@@ -67,29 +105,20 @@ impl AnalyticsService {
         Ok(json!({"album": album, "tracks": tracks}))
     }
 
-    pub async fn artists(&self, p: &sqlx::SqlitePool) -> anyhow::Result<serde_json::Value> {
-        let rows = sqlx::query_as::<_, (i64, String, Option<i64>, Option<i64>, Option<i64>)>(
-            "SELECT id, name, album_count, track_count, play_count FROM artists ORDER BY name ASC LIMIT 300",
-        )
-        .fetch_all(p)
-        .await?;
-        Ok(json!(rows))
-    }
-
     pub async fn artist_by_id(
         &self,
         p: &sqlx::SqlitePool,
         id: i64,
     ) -> anyhow::Result<serde_json::Value> {
-        let artist = sqlx::query_as::<_, (i64, String, Option<i64>, Option<i64>, Option<i64>, Option<String>)>(
-            "SELECT id, name, album_count, track_count, play_count, bio_summary FROM artists WHERE id = ?",
+        let artist = sqlx::query_as::<_, (i64, String, Option<i64>, Option<i64>, Option<i64>, Option<String>, Option<String>)>(
+            "SELECT id, name, album_count, track_count, play_count, bio_summary, image_url FROM artists WHERE id = ?",
         )
         .bind(id)
         .fetch_optional(p)
         .await?;
 
-        let albums = sqlx::query_as::<_, (i64, String, Option<i64>)>(
-            "SELECT id, title, year FROM albums WHERE artist_id = ? ORDER BY year DESC, title ASC",
+        let albums = sqlx::query_as::<_, (i64, String, Option<i64>, Option<String>)>(
+            "SELECT id, title, year, cover_art_id FROM albums WHERE artist_id = ? ORDER BY year DESC, title ASC",
         )
         .bind(id)
         .fetch_all(p)

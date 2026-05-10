@@ -38,6 +38,8 @@
 		.filter((album) => `${album[1]} ${artistMap.get(album[2] ?? -1) ?? ''} ${album[4] ?? ''}`.toLowerCase().includes(filter.toLowerCase()))
 		.sort((a, b) => sort === 'year' ? (b[3] ?? 0) - (a[3] ?? 0) : a[1].localeCompare(b[1]));
 	$: largest = storage?.largest_albums.slice(0, 12) ?? [];
+
+	onMount(load);
 </script>
 
 {#if loading}
@@ -75,7 +77,7 @@
 	{#if filtered.length}
 		<div class="media-grid">
 			{#each filtered as album}
-				<AlbumCard id={album[0]} title={album[1]} artist={artistMap.get(album[2] ?? -1) ?? 'Unknown artist'} year={album[3]} genre={album[4]} />
+				<AlbumCard id={album[0]} title={album[1]} artist={artistMap.get(album[2] ?? -1) ?? 'Unknown artist'} year={album[3]} genre={album[4]} coverArtId={album[5]} />
 			{/each}
 		</div>
 	{:else}

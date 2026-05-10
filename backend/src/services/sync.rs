@@ -4,6 +4,8 @@ use serde_json::json;
 use std::env;
 use tracing::{debug, info, warn};
 
+use crate::services::lastfm::LastfmClient;
+
 #[derive(Clone)]
 pub struct SyncService;
 impl SyncService {
@@ -41,18 +43,18 @@ impl SyncService {
     pub async fn sync_lastfm(&self, pool: &sqlx::SqlitePool) -> anyhow::Result<i64> {
         info!("starting Last.fm metadata sync");
         let result: anyhow::Result<i64> = async {
-            let api_key = setting_or_env(pool, "lastfm_api_key", "LASTFM_API_KEY")
+            setting_or_env(pool, "lastfm_api_key", "LASTFM_API_KEY")
                 .await?
                 .ok_or_else(|| {
                     anyhow!("missing Last.fm API key (settings.lastfm_api_key or LASTFM_API_KEY)")
                 })?;
-            let client = Client::new();
+            let client = LastfmClient::new();
             let artists = sqlx::query_as::<_, (i64, String)>("SELECT id, name FROM artists")
                 .fetch_all(pool)
                 .await?;
             let mut updated = 0_i64;
             for (artist_id, name) in artists {
-                if sync_lastfm_artist(pool, &client, &api_key, artist_id, &name).await? {
+                if sync_lastfm_artist(pool, &client, artist_id, &name).await? {
                     updated += 1;
                 }
             }
@@ -318,24 +320,11 @@ async fn import_subsonic_album(
 
 async fn sync_lastfm_artist(
     pool: &sqlx::SqlitePool,
-    client: &Client,
-    api_key: &str,
+    client: &LastfmClient,
     artist_id: i64,
     artist_name: &str,
 ) -> anyhow::Result<bool> {
-    let response = client
-        .get("https://ws.audioscrobbler.com/2.0/")
-        .query(&[
-            ("method", "artist.getinfo"),
-            ("artist", artist_name),
-            ("api_key", api_key),
-            ("format", "json"),
-        ])
-        .send()
-        .await?
-        .error_for_status()?
-        .json::<serde_json::Value>()
-        .await?;
+    let response = client.artist_get_info(pool, artist_name).await?;
     if let Some(code) = response.get("error") {
         if code.as_i64() == Some(6) {
             warn!(artist_name, "lastfm artist not found");
@@ -359,17 +348,111 @@ async fn sync_lastfm_artist(
     let playcount = artist["stats"]["playcount"]
         .as_str()
         .and_then(|s| s.parse::<i64>().ok());
-    let bio = artist["bio"]["summary"].as_str();
-    sqlx::query("UPDATE artists SET lastfm_artist_url=?, lastfm_listeners=?, lastfm_playcount=?, mbid=COALESCE(NULLIF(?, ''), mbid), bio_summary=COALESCE(?, bio_summary), updated_at=datetime('now') WHERE id=?")
+    let bio = clean_lastfm_bio(
+        artist["bio"]["summary"].as_str(),
+        artist["bio"]["content"].as_str(),
+    );
+    let image_url = lastfm_image_url(artist);
+    sqlx::query("UPDATE artists SET lastfm_artist_url=?, lastfm_listeners=?, lastfm_playcount=?, mbid=COALESCE(NULLIF(?, ''), mbid), image_url=COALESCE(?, image_url), bio_summary=COALESCE(?, bio_summary), updated_at=datetime('now') WHERE id=?")
         .bind(url)
         .bind(listeners)
         .bind(playcount)
         .bind(mbid)
+        .bind(image_url)
         .bind(bio)
         .bind(artist_id)
         .execute(pool)
         .await?;
     Ok(true)
+}
+
+fn lastfm_image_url(artist: &serde_json::Value) -> Option<String> {
+    artist
+        .get("image")
+        .and_then(|image| image.as_array())
+        .and_then(|images| {
+            images.iter().rev().find_map(|image| {
+                image
+                    .get("#text")
+                    .and_then(|url| url.as_str())
+                    .map(str::trim)
+                    .filter(|url| {
+                        !url.is_empty()
+                            && !url.contains("2a96cbd8b46e442fc41c2b86b821562f")
+                            && !url.contains("c6f59c1e5e7240a4c0d427abd71f3dbb")
+                    })
+                    .map(ToString::to_string)
+            })
+        })
+}
+
+fn clean_lastfm_bio(summary: Option<&str>, content: Option<&str>) -> Option<String> {
+    let raw = content
+        .and_then(non_empty)
+        .or_else(|| summary.and_then(non_empty))?;
+    let without_read_more = raw
+        .split("Read more on Last.fm")
+        .next()
+        .unwrap_or(raw)
+        .split("User-contributed text is available")
+        .next()
+        .unwrap_or(raw);
+    let cleaned = collapse_whitespace(&strip_html(without_read_more));
+    non_empty(&cleaned).map(ToString::to_string)
+}
+
+fn non_empty(value: &str) -> Option<&str> {
+    let value = value.trim();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value)
+    }
+}
+
+fn strip_html(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
+    let mut in_tag = false;
+    let mut entity = String::new();
+    let mut in_entity = false;
+
+    for character in value.chars() {
+        match character {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            '&' if !in_tag => {
+                entity.clear();
+                in_entity = true;
+            }
+            ';' if in_entity => {
+                output.push_str(match entity.as_str() {
+                    "amp" => "&",
+                    "quot" => "\"",
+                    "apos" | "#39" => "'",
+                    "lt" => "<",
+                    "gt" => ">",
+                    "nbsp" => " ",
+                    _ => "",
+                });
+                entity.clear();
+                in_entity = false;
+            }
+            _ if in_tag => {}
+            _ if in_entity => entity.push(character),
+            _ => output.push(character),
+        }
+    }
+
+    if in_entity {
+        output.push('&');
+        output.push_str(&entity);
+    }
+
+    output
+}
+
+fn collapse_whitespace(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 pub(crate) fn subsonic_auth_query(cfg: &SubsonicConfig) -> Vec<(String, String)> {
@@ -555,5 +638,30 @@ mod tests {
         let list = value_list(Some(&value));
 
         assert_eq!(list, vec![value]);
+    }
+
+    #[test]
+    fn cleans_lastfm_bio_text() {
+        let bio = clean_lastfm_bio(
+            Some("Artist &amp; friends <a href=\"https://last.fm\">Read more on Last.fm</a>"),
+            None,
+        );
+
+        assert_eq!(bio.as_deref(), Some("Artist & friends"));
+    }
+
+    #[test]
+    fn extracts_largest_non_empty_lastfm_artist_image() {
+        let artist = json!({
+            "image": [
+                { "#text": "", "size": "small" },
+                { "#text": "https://lastfm.freetls.fastly.net/i/u/300x300/avatar.jpg", "size": "large" }
+            ]
+        });
+
+        assert_eq!(
+            lastfm_image_url(&artist).as_deref(),
+            Some("https://lastfm.freetls.fastly.net/i/u/300x300/avatar.jpg")
+        );
     }
 }

@@ -8,8 +8,16 @@ export type Overview = {
 };
 
 export type TrackTuple = [number, string, number | null, number | null, number | null, string | null];
-export type AlbumTuple = [number, string, number | null, number | null, string | null];
-export type ArtistTuple = [number, string, number | null, number | null, number | null];
+export type AlbumTuple = [number, string, number | null, number | null, string | null, string | null];
+export type ArtistTuple = [
+	number,
+	string,
+	number | null,
+	number | null,
+	number | null,
+	string | null,
+	string | null
+];
 export type GenreTuple = [number, string, number | null, number | null, number | null];
 
 export type AlbumDetail = {
@@ -18,8 +26,8 @@ export type AlbumDetail = {
 };
 
 export type ArtistDetail = {
-	artist: [number, string, number | null, number | null, number | null, string | null] | null;
-	albums: [number, string, number | null][];
+	artist: [number, string, number | null, number | null, number | null, string | null, string | null] | null;
+	albums: [number, string, number | null, string | null][];
 };
 
 export type StorageStats = {

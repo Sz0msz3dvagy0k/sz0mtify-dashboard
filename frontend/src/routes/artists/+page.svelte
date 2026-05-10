@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api';
-	import type { ArtistTuple, DiscoveryList, StorageStats } from '$lib/types';
+	import type { AlbumTuple, ArtistTuple, DiscoveryList, StorageStats } from '$lib/types';
 	import ArtistCard from '$lib/components/ArtistCard.svelte';
 	import ChartCard from '$lib/components/ChartCard.svelte';
 	import DataTable from '$lib/components/DataTable.svelte';
@@ -13,6 +13,7 @@
 	import { formatBytes, formatNumber } from '$lib/format';
 
 	let artists: ArtistTuple[] = [];
+	let albums: AlbumTuple[] = [];
 	let storage: StorageStats;
 	let similar: DiscoveryList | null = null;
 	let loading = true;
@@ -23,7 +24,7 @@
 		loading = true;
 		error = '';
 		try {
-			[artists, storage, similar] = await Promise.all([api.artists(), api.storage(), api.similarArtists('limit=6')]);
+			[artists, albums, storage, similar] = await Promise.all([api.artists(), api.albums(), api.storage(), api.similarArtists('limit=6')]);
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Unable to load artists';
 		} finally {
@@ -33,6 +34,11 @@
 
 	$: filtered = artists.filter((artist) => artist[1].toLowerCase().includes(filter.toLowerCase()));
 	$: topByTracks = [...artists].sort((a, b) => (b[3] ?? 0) - (a[3] ?? 0)).slice(0, 10);
+	$: representativeAlbumByArtist = new Map(
+		albums.filter((album) => album[2] !== null).map((album) => [album[2] as number, album[0]])
+	);
+
+	onMount(load);
 </script>
 
 {#if loading}
@@ -62,7 +68,7 @@
 	<SectionHeader title="Artist Grid" eyebrow={`${filtered.length} matches`} />
 	<div class="media-grid artist-grid">
 		{#each filtered as artist}
-			<ArtistCard id={artist[0]} name={artist[1]} albums={artist[2] ?? 0} tracks={artist[3] ?? 0} plays={artist[4] ?? 0} />
+			<ArtistCard id={artist[0]} name={artist[1]} albums={artist[2] ?? 0} tracks={artist[3] ?? 0} plays={artist[4] ?? 0} artistImageUrl={artist[5]} coverArtId={artist[6]} coverAlbumId={representativeAlbumByArtist.get(artist[0]) ?? null} />
 		{/each}
 	</div>
 {/if}

@@ -44,6 +44,20 @@ export function coverUrl(coverArtId: string | null | undefined): string | null {
 	return `${apiBase()}/api/cover/${encodeURIComponent(coverArtId)}`;
 }
 
+export function formatArtistBio(value: string | null | undefined): string {
+	if (!value) return '';
+	return value
+		.split('Read more on Last.fm')[0]
+		.split('User-contributed text is available')[0]
+		.replace(/<[^>]*>/g, ' ')
+		.replace(/&amp;/g, '&')
+		.replace(/&quot;/g, '"')
+		.replace(/&#39;|&apos;/g, "'")
+		.replace(/&nbsp;/g, ' ')
+		.replace(/\s+/g, ' ')
+		.trim();
+}
+
 export function apiBase(): string {
 	return (
 		import.meta.env.VITE_API_BASE_URL ||

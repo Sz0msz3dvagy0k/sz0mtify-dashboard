@@ -8,17 +8,26 @@
 	import ErrorState from '$lib/components/ErrorState.svelte';
 	import ImageWithFallback from '$lib/components/ImageWithFallback.svelte';
 	import StatCard from '$lib/components/StatCard.svelte';
-	import { formatBytes, formatNumber } from '$lib/format';
+	import { coverUrl, formatArtistBio, formatBytes, formatNumber } from '$lib/format';
 
 	let detail: ArtistDetail;
 	let storage: StorageStats;
+	let resolvedArtistCoverArtId: string | null = null;
 	let error = '';
 	let loading = true;
 
 	async function load() {
 		loading = true;
+		resolvedArtistCoverArtId = null;
 		try {
 			[detail, storage] = await Promise.all([api.artist(Number($page.params.id)), api.storage()]);
+			if (!detail.albums.some((album) => album[3])) {
+				const albumId = detail.albums[0]?.[0];
+				if (albumId) {
+					const albumDetail = await api.album(albumId);
+					resolvedArtistCoverArtId = albumDetail.album?.[6] ?? null;
+				}
+			}
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Unable to load artist';
 		} finally {
@@ -28,6 +37,10 @@
 	onMount(load);
 	$: artist = detail?.artist;
 	$: artistStorage = storage?.size_by_artist.find((row) => row[0] === artist?.[0]);
+	$: representativeCoverArtId = detail?.albums.find((album) => album[3])?.[3] ?? resolvedArtistCoverArtId;
+	$: artistImageUrl = artist?.[6] ?? null;
+	$: fallbackHeroImageSrc = coverUrl(representativeCoverArtId);
+	$: artistBio = formatArtistBio(artist?.[5]);
 </script>
 
 {#if loading}
@@ -39,7 +52,7 @@
 {:else}
 	<section class="detail-hero">
 		<div class="detail-art">
-			<ImageWithFallback alt={artist[1]} kind="artist" />
+			<ImageWithFallback src={artistImageUrl} fallbackSrc={fallbackHeroImageSrc} alt={artist[1]} kind="artist" />
 		</div>
 		<div>
 			<p class="eyebrow">Artist profile</p>
@@ -49,12 +62,12 @@
 				<StatCard label="Tracks" value={formatNumber(artist[3] ?? 0)} />
 				<StatCard label="Storage" value={formatBytes(artistStorage?.[2] ?? 0)} />
 			</div>
-			{#if artist[5]}<p class="bio">{@html artist[5]}</p>{/if}
+			{#if artistBio}<p class="bio">{artistBio}</p>{/if}
 		</div>
 	</section>
 	<div class="media-grid">
 		{#each detail.albums as album}
-			<AlbumCard id={album[0]} title={album[1]} artist={artist[1]} year={album[2]} />
+			<AlbumCard id={album[0]} title={album[1]} artist={artist[1]} year={album[2]} coverArtId={album[3]} />
 		{/each}
 	</div>
 {/if}
