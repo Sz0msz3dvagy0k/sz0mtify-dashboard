@@ -61,7 +61,10 @@ pub async fn sync_lastfm(State(state): State<Arc<AppState>>) -> Json<Value> {
 pub async fn sync_all(State(state): State<Arc<AppState>>) -> Json<Value> {
     let subsonic = state.sync.sync_subsonic(&state.pool).await.is_ok();
     let lastfm = state.sync.sync_lastfm(&state.pool).await.is_ok();
-    Json(json!({"ok": subsonic && lastfm, "data": {"subsonic": subsonic, "lastfm": lastfm}}))
+    let track_count = state.sync.track_count(&state.pool).await.unwrap_or_default();
+    Json(
+        json!({"ok": subsonic && lastfm, "data": {"subsonic": subsonic, "lastfm": lastfm, "track_count": track_count}}),
+    )
 }
 
 pub async fn sync_status(State(state): State<Arc<AppState>>) -> Json<Value> {

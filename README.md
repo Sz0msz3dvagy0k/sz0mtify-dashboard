@@ -38,5 +38,7 @@ npm run format
 ## Implemented endpoints
 Includes health, settings, sync, library, stats, discovery, recommendations, search, and cover proxy placeholders.
 
+> Note: Subsonic/Last.fm ingestion is currently a placeholder. Sync endpoints currently update sync status and return explicit "not implemented" errors until source API integration is added.
+
 ## Seed/mock mode
 Set `SEED_MODE=true` in `.env` to allow frontend development without valid API credentials.
