@@ -2,6 +2,8 @@ use std::sync::Arc;
 
 use axum::{
     extract::{Path, Query, State},
+    http::StatusCode,
+    response::IntoResponse,
     Json,
 };
 use serde::Deserialize;
@@ -44,26 +46,68 @@ pub async fn save_settings(
     }
 }
 
-pub async fn sync_subsonic(State(state): State<Arc<AppState>>) -> Json<Value> {
+pub async fn sync_subsonic(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     match state.sync.sync_subsonic(&state.pool).await {
-        Ok(_) => ok(json!({"source": "subsonic"})),
-        Err(_) => err("failed_to_sync_subsonic"),
+        Ok(imported_tracks) => (
+            StatusCode::OK,
+            ok(json!({"source": "subsonic", "imported_tracks": imported_tracks})),
+        ),
+        Err(error) => (
+            StatusCode::BAD_GATEWAY,
+            err(&format!("failed_to_sync_subsonic: {error}")),
+        ),
     }
 }
 
-pub async fn sync_lastfm(State(state): State<Arc<AppState>>) -> Json<Value> {
+pub async fn sync_lastfm(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     match state.sync.sync_lastfm(&state.pool).await {
-        Ok(_) => ok(json!({"source": "lastfm"})),
-        Err(_) => err("failed_to_sync_lastfm"),
+        Ok(updated_artists) => (
+            StatusCode::OK,
+            ok(json!({"source": "lastfm", "updated_artists": updated_artists})),
+        ),
+        Err(error) => (
+            StatusCode::BAD_GATEWAY,
+            err(&format!("failed_to_sync_lastfm: {error}")),
+        ),
     }
 }
 
-pub async fn sync_all(State(state): State<Arc<AppState>>) -> Json<Value> {
-    let subsonic = state.sync.sync_subsonic(&state.pool).await.is_ok();
-    let lastfm = state.sync.sync_lastfm(&state.pool).await.is_ok();
-    let track_count = state.sync.track_count(&state.pool).await.unwrap_or_default();
-    Json(
-        json!({"ok": subsonic && lastfm, "data": {"subsonic": subsonic, "lastfm": lastfm, "track_count": track_count}}),
+pub async fn sync_all(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let subsonic_result = state.sync.sync_subsonic(&state.pool).await;
+    let lastfm_result = state.sync.sync_lastfm(&state.pool).await;
+    let track_count = state
+        .sync
+        .track_count(&state.pool)
+        .await
+        .unwrap_or_default();
+    let ok = subsonic_result.is_ok() && lastfm_result.is_ok();
+    let status = if ok {
+        StatusCode::OK
+    } else {
+        StatusCode::BAD_GATEWAY
+    };
+
+    let subsonic_error = subsonic_result.as_ref().err().map(ToString::to_string);
+    let lastfm_error = lastfm_result.as_ref().err().map(ToString::to_string);
+    let subsonic_imported_tracks = subsonic_result.unwrap_or_default();
+    let lastfm_updated_artists = lastfm_result.unwrap_or_default();
+
+    (
+        status,
+        Json(json!({
+            "ok": ok,
+            "data": {
+                "subsonic": subsonic_error.is_none(),
+                "lastfm": lastfm_error.is_none(),
+                "track_count": track_count,
+                "subsonic_imported_tracks": subsonic_imported_tracks,
+                "lastfm_updated_artists": lastfm_updated_artists,
+                "errors": {
+                    "subsonic": subsonic_error,
+                    "lastfm": lastfm_error
+                }
+            }
+        })),
     )
 }
 
