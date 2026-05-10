@@ -16,6 +16,7 @@ use services::{
 };
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::info;
+use tracing_subscriber::EnvFilter;
 
 fn ensure_sqlite_parent_dir(database_url: &str) -> anyhow::Result<()> {
     if !database_url.starts_with("sqlite:") {
@@ -49,7 +50,12 @@ async fn main() {
 
 async fn run() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
-    tracing_subscriber::fmt().with_env_filter("info").init();
+    let log_filter = env::var("RUST_LOG")
+        .unwrap_or_else(|_| "debug,tower_http=debug,sqlx=info,music_listening_dashboard=debug".into());
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::new(log_filter))
+        .with_target(true)
+        .init();
 
     let database_url =
         env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite://music-dashboard.db".into());
