@@ -1,7 +1,8 @@
-FROM rust:1.88 as builder
+FROM rust:1.88 AS builder
 WORKDIR /app
 COPY backend/Cargo.toml backend/Cargo.lock* ./
 RUN mkdir src && echo 'fn main(){}' > src/main.rs && cargo build --release || true
+RUN rm -rf src target/release/music-dashboard-backend target/release/deps/music_dashboard_backend-*
 COPY backend .
 RUN cargo build --release
 

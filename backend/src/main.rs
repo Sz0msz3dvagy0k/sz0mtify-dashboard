@@ -14,6 +14,8 @@ use services::{
     analytics::AnalyticsService, discovery::DiscoveryService,
     recommendation::RecommendationService, settings::SettingsService, sync::SyncService, AppState,
 };
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+use std::str::FromStr;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
@@ -40,6 +42,11 @@ fn ensure_sqlite_parent_dir(database_url: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+async fn connect_sqlite_pool(database_url: &str) -> anyhow::Result<sqlx::SqlitePool> {
+    let options = SqliteConnectOptions::from_str(database_url)?.create_if_missing(true);
+    Ok(SqlitePoolOptions::new().connect_with(options).await?)
+}
+
 #[tokio::main]
 async fn main() {
     if let Err(error) = run().await {
@@ -50,8 +57,9 @@ async fn main() {
 
 async fn run() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
-    let log_filter = env::var("RUST_LOG")
-        .unwrap_or_else(|_| "debug,tower_http=debug,sqlx=info,music_listening_dashboard=debug".into());
+    let log_filter = env::var("RUST_LOG").unwrap_or_else(|_| {
+        "debug,tower_http=debug,sqlx=info,music_listening_dashboard=debug".into()
+    });
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::new(log_filter))
         .with_target(true)
@@ -60,7 +68,7 @@ async fn run() -> anyhow::Result<()> {
     let database_url =
         env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite://music-dashboard.db".into());
     ensure_sqlite_parent_dir(&database_url)?;
-    let pool = sqlx::SqlitePool::connect(&database_url).await?;
+    let pool = connect_sqlite_pool(&database_url).await?;
     migrate(&pool).await?;
 
     let state = Arc::new(AppState {
@@ -140,4 +148,27 @@ async fn run() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn sqlite_pool_creates_missing_database_file() {
+        let db_path = std::env::temp_dir()
+            .join("music-dashboard-tests")
+            .join(format!("{}.db", uuid::Uuid::new_v4()));
+        let database_url = format!("sqlite://{}", db_path.display());
+
+        ensure_sqlite_parent_dir(&database_url).expect("parent directory should be created");
+        let pool = connect_sqlite_pool(&database_url)
+            .await
+            .expect("missing sqlite database should be created");
+        pool.close().await;
+
+        assert!(db_path.exists());
+
+        let _ = std::fs::remove_file(db_path);
+    }
 }
