@@ -3,7 +3,7 @@ mod db;
 mod services;
 mod utils;
 
-use std::{collections::HashSet, env, net::SocketAddr, sync::Arc};
+use std::{collections::HashSet, env, net::SocketAddr, sync::Arc, time::Duration};
 
 use axum::{
     routing::{get, post},
@@ -14,9 +14,9 @@ use services::{
     analytics::AnalyticsService, discovery::DiscoveryService,
     recommendation::RecommendationService, settings::SettingsService, sync::SyncService, AppState,
 };
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 use std::str::FromStr;
-use tower_http::{cors::CorsLayer, trace::TraceLayer};
+use tower_http::trace::TraceLayer;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
@@ -43,8 +43,24 @@ fn ensure_sqlite_parent_dir(database_url: &str) -> anyhow::Result<()> {
 }
 
 async fn connect_sqlite_pool(database_url: &str) -> anyhow::Result<sqlx::SqlitePool> {
-    let options = SqliteConnectOptions::from_str(database_url)?.create_if_missing(true);
-    Ok(SqlitePoolOptions::new().connect_with(options).await?)
+    let options = SqliteConnectOptions::from_str(database_url)?
+        .create_if_missing(true)
+        .journal_mode(SqliteJournalMode::Wal)
+        .synchronous(SqliteSynchronous::Normal)
+        .busy_timeout(Duration::from_secs(5))
+        .foreign_keys(true);
+    Ok(SqlitePoolOptions::new()
+        .max_connections(sqlite_pool_max_connections())
+        .connect_with(options)
+        .await?)
+}
+
+fn sqlite_pool_max_connections() -> u32 {
+    env::var("SQLITE_MAX_CONNECTIONS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .filter(|value| (1..=32).contains(value))
+        .unwrap_or(5)
 }
 
 #[tokio::main]
@@ -138,7 +154,6 @@ async fn run() -> anyhow::Result<()> {
         )
         .route("/api/search", get(api::handlers::search))
         .route("/api/cover/:cover_art_id", get(api::handlers::cover))
-        .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 

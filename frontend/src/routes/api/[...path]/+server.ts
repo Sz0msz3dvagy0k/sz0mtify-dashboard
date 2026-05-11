@@ -47,12 +47,11 @@ const proxy: RequestHandler = async ({ request, params, url }) => {
 
 	if (!response.ok) {
 		const body = await response.arrayBuffer();
-		const text = new TextDecoder().decode(body).slice(0, 500);
 		console.error('Backend proxy returned an error', {
 			method: request.method,
 			path: target.pathname,
 			status: response.status,
-			body: text
+			bodyBytes: body.byteLength
 		});
 
 		return new Response(body, {

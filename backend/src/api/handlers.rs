@@ -12,7 +12,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::services::discovery::{DiscoveryListOptions, DiscoveryRefreshOptions};
 use crate::services::{sync::SubsonicConfig, AppState};
@@ -60,7 +60,10 @@ pub async fn save_settings(
 ) -> Json<Value> {
     match state.settings.save(&state.pool, payload.clone()).await {
         Ok(_) => ok(payload),
-        Err(_) => err("failed_to_save_settings"),
+        Err(error) => {
+            warn!(error = %error, "failed to save settings");
+            err("failed_to_save_settings")
+        }
     }
 }
 
@@ -401,11 +404,10 @@ pub async fn cover(
         Err(error) if error.to_string().contains("not found") => {
             (StatusCode::NOT_FOUND, err("cover_art_not_found")).into_response()
         }
-        Err(error) => (
-            StatusCode::BAD_GATEWAY,
-            err(&format!("failed_to_fetch_cover_art: {error}")),
-        )
-            .into_response(),
+        Err(error) => {
+            warn!(cover_art_id, error = %error, "failed to fetch cover art");
+            (StatusCode::BAD_GATEWAY, err("failed_to_fetch_cover_art")).into_response()
+        }
     }
 }
 

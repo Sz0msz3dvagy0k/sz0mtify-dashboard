@@ -1,6 +1,8 @@
 use anyhow::{anyhow, Context};
+use rand::RngCore;
 use reqwest::Client;
 use serde_json::json;
+use sha1::{Digest, Sha1};
 use std::collections::HashSet;
 use std::env;
 use tracing::{info, warn};
@@ -654,9 +656,17 @@ fn collapse_whitespace(value: &str) -> String {
 }
 
 pub(crate) fn subsonic_auth_query(cfg: &SubsonicConfig) -> Vec<(String, String)> {
+    let mut salt_bytes = [0_u8; 16];
+    rand::thread_rng().fill_bytes(&mut salt_bytes);
+    let salt = hex::encode(salt_bytes);
+    let mut hasher = Sha1::new();
+    hasher.update(format!("{}{}", cfg.password, salt).as_bytes());
+    let token = hex::encode(hasher.finalize());
+
     vec![
         ("u".to_string(), cfg.username.clone()),
-        ("p".to_string(), cfg.password.clone()),
+        ("t".to_string(), token),
+        ("s".to_string(), salt),
         ("v".to_string(), cfg.api_version.clone()),
         ("c".to_string(), "music-dashboard".to_string()),
         ("f".to_string(), "json".to_string()),
