@@ -59,9 +59,5 @@ export function formatArtistBio(value: string | null | undefined): string {
 }
 
 export function apiBase(): string {
-	return (
-		import.meta.env.VITE_API_BASE_URL ||
-		import.meta.env.FRONTEND_API_BASE_URL ||
-		'http://127.0.0.1:8080'
-	).replace(/\/$/, '');
+	return (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 }
