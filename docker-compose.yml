@@ -4,18 +4,19 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     environment:
-      - DATABASE_URL: ${DATABASE_URL}
-      - BACKEND_PORT: ${BACKEND_PORT}
-      - BACKEND_HOST: ${BACKEND_HOST}
-      - SUBSONIC_BASE_URL: ${SUBSONIC_BASE_URL}
-      - SUBSONIC_USERNAME: ${SUBSONIC_USERNAME}
-      - SUBSONIC_PASSWORD: ${SUBSONIC_PASSWORD}
-      - SUBSONIC_API_VERSION: ${SUBSONIC_API_VERSION}
-      - LASTFM_API_KEY: ${LASTFM_API_KEY}
-      - LASTFM_API_USERNAME: ${LASTFM_API_USERNAME}
-      - FRONTEND_API_BASE_URL: ${FRONTEND_API_BASE_URL}
-      - SEED_MODE: ${SEED_MODE}
-    ports: "[::1]:8080:8080"
+      - DATABASE_URL=${DATABASE_URL}
+      - BACKEND_PORT=${BACKEND_PORT}
+      - BACKEND_HOST=${BACKEND_HOST}
+      - SUBSONIC_BASE_URL=${SUBSONIC_BASE_URL}
+      - SUBSONIC_USERNAME=${SUBSONIC_USERNAME}
+      - SUBSONIC_PASSWORD=${SUBSONIC_PASSWORD}
+      - SUBSONIC_API_VERSION=${SUBSONIC_API_VERSION}
+      - LASTFM_API_KEY=${LASTFM_API_KEY}
+      - LASTFM_API_USERNAME=${LASTFM_API_USERNAME}
+      - FRONTEND_API_BASE_URL=${FRONTEND_API_BASE_URL}
+      - SEED_MODE=${SEED_MODE}
+    ports: 
+      - "[::1]:8080:8080"
     volumes:
       - data:/data
   frontend:
@@ -23,8 +24,10 @@ services:
       context: .
       dockerfile: frontend/Dockerfile
     environment:
-      - FRONTEND_API_BASE_URL: ${FRONTEND_API_BASE_URL}
-    ports: "[::1]:5173:5173"
-    depends_on: backend
+      - FRONTEND_API_BASE_URL=${FRONTEND_API_BASE_URL}
+    ports: 
+      - "[::1]:5173:5173"
+    depends_on: 
+      - backend
 volumes:
   data:
