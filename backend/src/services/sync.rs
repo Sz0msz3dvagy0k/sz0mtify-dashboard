@@ -291,7 +291,8 @@ async fn import_subsonic_album(
         )
         .await?;
 
-        sqlx::query("INSERT INTO tracks(subsonic_id,title,artist_id,album_id,album_artist_id,duration_seconds,track_number,disc_number,year,genre,file_path,suffix,content_type,size_bytes,bit_rate,bit_depth,sampling_rate,channel_count,play_count,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now')) ON CONFLICT(subsonic_id) DO UPDATE SET title=excluded.title, artist_id=excluded.artist_id, album_id=excluded.album_id, album_artist_id=excluded.album_artist_id, duration_seconds=excluded.duration_seconds, track_number=excluded.track_number, disc_number=excluded.disc_number, year=excluded.year, genre=excluded.genre, file_path=excluded.file_path, suffix=excluded.suffix, content_type=excluded.content_type, size_bytes=excluded.size_bytes, bit_rate=excluded.bit_rate, bit_depth=excluded.bit_depth, sampling_rate=excluded.sampling_rate, channel_count=excluded.channel_count, play_count=excluded.play_count, updated_at=datetime('now')")
+        let mbid = track_mbid(&song);
+        sqlx::query("INSERT INTO tracks(subsonic_id,title,artist_id,album_id,album_artist_id,duration_seconds,track_number,disc_number,year,genre,file_path,suffix,content_type,size_bytes,bit_rate,bit_depth,sampling_rate,channel_count,play_count,mbid,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now')) ON CONFLICT(subsonic_id) DO UPDATE SET title=excluded.title, artist_id=excluded.artist_id, album_id=excluded.album_id, album_artist_id=excluded.album_artist_id, duration_seconds=excluded.duration_seconds, track_number=excluded.track_number, disc_number=excluded.disc_number, year=excluded.year, genre=excluded.genre, file_path=excluded.file_path, suffix=excluded.suffix, content_type=excluded.content_type, size_bytes=excluded.size_bytes, bit_rate=excluded.bit_rate, bit_depth=excluded.bit_depth, sampling_rate=excluded.sampling_rate, channel_count=excluded.channel_count, play_count=excluded.play_count, mbid=COALESCE(NULLIF(excluded.mbid, ''), tracks.mbid), updated_at=datetime('now')")
             .bind(song["id"].as_str())
             .bind(song["title"].as_str().unwrap_or("Unknown Track"))
             .bind(track_artist_id)
@@ -311,6 +312,7 @@ async fn import_subsonic_album(
             .bind(song["samplingRate"].as_i64())
             .bind(song["channelCount"].as_i64())
             .bind(song["playCount"].as_i64().unwrap_or(0))
+            .bind(mbid)
             .execute(pool)
             .await?;
         inserted += 1;
@@ -529,6 +531,54 @@ fn value_list(value: Option<&serde_json::Value>) -> Vec<serde_json::Value> {
     }
 }
 
+fn track_mbid(song: &serde_json::Value) -> Option<String> {
+    first_non_empty_string(
+        song,
+        &[
+            "musicBrainzId",
+            "musicBrainzRecordingId",
+            "musicbrainz_recordingid",
+            "MusicBrainz Recording Id",
+        ],
+    )
+    .or_else(|| metadata_value(song.get("metadata"), "MusicBrainz Recording Id"))
+}
+
+fn first_non_empty_string(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
+    keys.iter()
+        .find_map(|key| non_empty(value.get(*key)?.as_str()?).map(ToString::to_string))
+}
+
+fn metadata_value(value: Option<&serde_json::Value>, label: &str) -> Option<String> {
+    let metadata = value?;
+    match metadata {
+        serde_json::Value::Object(tags) => tags
+            .iter()
+            .find(|(key, _)| metadata_key_matches(key, label))
+            .and_then(|(_, value)| non_empty(value.as_str()?).map(ToString::to_string)),
+        serde_json::Value::Array(tags) => tags.iter().find_map(|tag| {
+            let key = first_non_empty_string(tag, &["name", "key", "field", "label"])?;
+            if !metadata_key_matches(&key, label) {
+                return None;
+            }
+            first_non_empty_string(tag, &["value", "text"])
+        }),
+        _ => None,
+    }
+}
+
+fn metadata_key_matches(key: &str, expected: &str) -> bool {
+    normalize_metadata_key(key) == normalize_metadata_key(expected)
+}
+
+fn normalize_metadata_key(value: &str) -> String {
+    value
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
 async fn upsert_artist(
     pool: &sqlx::SqlitePool,
     subsonic_id: Option<&str>,
@@ -638,6 +688,53 @@ mod tests {
         let list = value_list(Some(&value));
 
         assert_eq!(list, vec![value]);
+    }
+
+    #[test]
+    fn extracts_track_mbid_from_subsonic_musicbrainz_id() {
+        let song = json!({
+            "id": "track-1",
+            "musicBrainzId": "9f1b7f0f-4d44-41fc-89a8-8f6d3b5b7a4d"
+        });
+
+        assert_eq!(
+            track_mbid(&song).as_deref(),
+            Some("9f1b7f0f-4d44-41fc-89a8-8f6d3b5b7a4d")
+        );
+    }
+
+    #[test]
+    fn extracts_track_mbid_from_raw_metadata_object() {
+        let song = json!({
+            "id": "track-1",
+            "metadata": {
+                "MusicBrainz Recording Id": "3cbacb77-0e5e-42b7-8f4a-50d33f63ea2b"
+            }
+        });
+
+        assert_eq!(
+            track_mbid(&song).as_deref(),
+            Some("3cbacb77-0e5e-42b7-8f4a-50d33f63ea2b")
+        );
+    }
+
+    #[test]
+    fn extracts_track_mbid_from_raw_metadata_array() {
+        let song = json!({
+            "id": "track-1",
+            "metadata": [
+                { "name": "Album", "value": "Example Album" },
+                {
+                    "name": "MusicBrainz Recording Id",
+                    "value": "d577be68-5137-4bb2-b115-d3c1119913ef"
+                }
+            ]
+        });
+
+        assert_eq!(
+            track_mbid(&song).as_deref(),
+            Some("d577be68-5137-4bb2-b115-d3c1119913ef")
+        );
     }
 
     #[test]
