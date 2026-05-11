@@ -1,10 +1,12 @@
 use anyhow::{anyhow, Context};
 use reqwest::Client;
 use serde_json::json;
+use std::collections::HashSet;
 use std::env;
 use tracing::{debug, info, warn};
 
 use crate::services::lastfm::LastfmClient;
+use crate::utils::matching::normalize_name;
 
 #[derive(Clone)]
 pub struct SyncService;
@@ -19,12 +21,19 @@ impl SyncService {
             let client = Client::new();
             let albums = fetch_subsonic_album_list(&client, &cfg).await?;
             let mut imported_tracks = 0_i64;
+            let mut seen_track_ids = HashSet::new();
             for album in albums {
-                imported_tracks += import_subsonic_album(pool, &client, &cfg, &album).await?;
+                imported_tracks +=
+                    import_subsonic_album(pool, &client, &cfg, &album, &mut seen_track_ids).await?;
             }
+            let updated_artist_images = sync_subsonic_artist_images(pool, &client, &cfg).await?;
+            let removed_stale_tracks = remove_stale_subsonic_tracks(pool, &seen_track_ids).await?;
             refresh_library_rollups(pool).await?;
             write_sync_state(pool, 1, "subsonic", "ok", None).await?;
-            info!(imported_tracks, "completed Subsonic sync");
+            info!(
+                imported_tracks,
+                updated_artist_images, removed_stale_tracks, "completed Subsonic sync"
+            );
             Ok(imported_tracks)
         }
         .await;
@@ -243,6 +252,7 @@ async fn import_subsonic_album(
     client: &Client,
     cfg: &SubsonicConfig,
     album: &serde_json::Value,
+    seen_track_ids: &mut HashSet<String>,
 ) -> anyhow::Result<i64> {
     let album_id = album["id"].as_str().unwrap_or_default();
     if album_id.is_empty() {
@@ -283,6 +293,9 @@ async fn import_subsonic_album(
     let songs = value_list(response["subsonic-response"]["album"].get("song"));
     let mut inserted = 0_i64;
     for song in songs {
+        if let Some(song_id) = song["id"].as_str().and_then(non_empty) {
+            seen_track_ids.insert(song_id.to_string());
+        }
         let track_artist_name = song["artist"].as_str().unwrap_or(artist_name);
         let track_artist_id = upsert_artist(
             pool,
@@ -291,6 +304,7 @@ async fn import_subsonic_album(
         )
         .await?;
 
+        reconcile_track_identity_change(pool, song["id"].as_str(), song["path"].as_str()).await?;
         let mbid = track_mbid(&song);
         sqlx::query("INSERT INTO tracks(subsonic_id,title,artist_id,album_id,album_artist_id,duration_seconds,track_number,disc_number,year,genre,file_path,suffix,content_type,size_bytes,bit_rate,bit_depth,sampling_rate,channel_count,play_count,mbid,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now')) ON CONFLICT(subsonic_id) DO UPDATE SET title=excluded.title, artist_id=excluded.artist_id, album_id=excluded.album_id, album_artist_id=excluded.album_artist_id, duration_seconds=excluded.duration_seconds, track_number=excluded.track_number, disc_number=excluded.disc_number, year=excluded.year, genre=excluded.genre, file_path=excluded.file_path, suffix=excluded.suffix, content_type=excluded.content_type, size_bytes=excluded.size_bytes, bit_rate=excluded.bit_rate, bit_depth=excluded.bit_depth, sampling_rate=excluded.sampling_rate, channel_count=excluded.channel_count, play_count=excluded.play_count, mbid=COALESCE(NULLIF(excluded.mbid, ''), tracks.mbid), updated_at=datetime('now')")
             .bind(song["id"].as_str())
@@ -318,6 +332,210 @@ async fn import_subsonic_album(
         inserted += 1;
     }
     Ok(inserted)
+}
+
+async fn remove_stale_subsonic_tracks(
+    pool: &sqlx::SqlitePool,
+    seen_track_ids: &HashSet<String>,
+) -> anyhow::Result<i64> {
+    if seen_track_ids.is_empty() {
+        return Ok(0);
+    }
+
+    let rows = sqlx::query_as::<_, (i64, String)>(
+        "SELECT id, subsonic_id
+         FROM tracks
+         WHERE subsonic_id IS NOT NULL
+           AND subsonic_id != ''",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let mut removed = 0_i64;
+    for (track_id, subsonic_id) in rows {
+        if seen_track_ids.contains(&subsonic_id) {
+            continue;
+        }
+        sqlx::query("DELETE FROM tracks WHERE id = ?")
+            .bind(track_id)
+            .execute(pool)
+            .await?;
+        removed += 1;
+    }
+
+    Ok(removed)
+}
+
+async fn reconcile_track_identity_change(
+    pool: &sqlx::SqlitePool,
+    new_subsonic_id: Option<&str>,
+    file_path: Option<&str>,
+) -> anyhow::Result<()> {
+    let Some(new_subsonic_id) = new_subsonic_id.and_then(non_empty) else {
+        return Ok(());
+    };
+    let Some(file_path) = file_path.and_then(non_empty) else {
+        return Ok(());
+    };
+
+    let current = sqlx::query_as::<_, (i64,)>("SELECT id FROM tracks WHERE subsonic_id = ?")
+        .bind(new_subsonic_id)
+        .fetch_optional(pool)
+        .await?
+        .map(|(id,)| id);
+
+    let stale_ids = sqlx::query_as::<_, (i64,)>(
+        "SELECT id
+         FROM tracks
+         WHERE file_path = ?
+           AND subsonic_id != ?
+         ORDER BY id ASC",
+    )
+    .bind(file_path)
+    .bind(new_subsonic_id)
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|(id,)| id)
+    .collect::<Vec<_>>();
+
+    if stale_ids.is_empty() {
+        return Ok(());
+    }
+
+    let target_id = if let Some(current_id) = current {
+        current_id
+    } else {
+        let first_stale_id = stale_ids[0];
+        sqlx::query("UPDATE tracks SET subsonic_id = ?, updated_at = datetime('now') WHERE id = ?")
+            .bind(new_subsonic_id)
+            .bind(first_stale_id)
+            .execute(pool)
+            .await?;
+        first_stale_id
+    };
+
+    for stale_id in stale_ids {
+        if stale_id == target_id {
+            continue;
+        }
+        sqlx::query("UPDATE plays SET track_id = ? WHERE track_id = ?")
+            .bind(target_id)
+            .bind(stale_id)
+            .execute(pool)
+            .await?;
+        sqlx::query("DELETE FROM tracks WHERE id = ?")
+            .bind(stale_id)
+            .execute(pool)
+            .await?;
+    }
+
+    Ok(())
+}
+
+async fn sync_subsonic_artist_images(
+    pool: &sqlx::SqlitePool,
+    client: &Client,
+    cfg: &SubsonicConfig,
+) -> anyhow::Result<i64> {
+    let artists = sqlx::query_as::<_, (i64, String, Option<String>)>(
+        "SELECT id, name, subsonic_id FROM artists WHERE name != '' ORDER BY name ASC",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let mut updated = 0_i64;
+    for (artist_id, artist_name, subsonic_id) in artists {
+        let Some(artist) =
+            fetch_subsonic_artist_search_match(client, cfg, &artist_name, subsonic_id.as_deref())
+                .await?
+        else {
+            continue;
+        };
+
+        let image_url = first_non_empty_string(&artist, &["artistImageUrl"]);
+        let mbid = first_non_empty_string(&artist, &["musicBrainzId"]);
+        if image_url.is_none() && mbid.is_none() {
+            continue;
+        }
+
+        let result = sqlx::query(
+            "UPDATE artists
+             SET image_url=COALESCE(NULLIF(?, ''), image_url),
+                 mbid=COALESCE(NULLIF(?, ''), mbid),
+                 updated_at=datetime('now')
+             WHERE id=?",
+        )
+        .bind(image_url)
+        .bind(mbid)
+        .bind(artist_id)
+        .execute(pool)
+        .await?;
+        updated += result.rows_affected() as i64;
+    }
+
+    Ok(updated)
+}
+
+async fn fetch_subsonic_artist_search_match(
+    client: &Client,
+    cfg: &SubsonicConfig,
+    artist_name: &str,
+    subsonic_id: Option<&str>,
+) -> anyhow::Result<Option<serde_json::Value>> {
+    let url = format!("{}/rest/search3.view", cfg.base_url.trim_end_matches('/'));
+    let response = subsonic_get_json(
+        client,
+        &url,
+        cfg,
+        &[
+            ("query", artist_name.to_string()),
+            ("artistCount", "10".to_string()),
+            ("albumCount", "0".to_string()),
+            ("songCount", "0".to_string()),
+        ],
+        "search3",
+    )
+    .await?;
+    let artists = value_list(response["subsonic-response"]["searchResult3"].get("artist"));
+    Ok(select_subsonic_artist_match(
+        artists,
+        artist_name,
+        subsonic_id,
+    ))
+}
+
+fn select_subsonic_artist_match(
+    artists: Vec<serde_json::Value>,
+    artist_name: &str,
+    subsonic_id: Option<&str>,
+) -> Option<serde_json::Value> {
+    if artists.is_empty() {
+        return None;
+    }
+
+    if let Some(subsonic_id) = subsonic_id.and_then(non_empty) {
+        if let Some(artist) = artists.iter().find(|artist| {
+            artist
+                .get("id")
+                .and_then(|id| id.as_str())
+                .is_some_and(|id| id == subsonic_id)
+        }) {
+            return Some(artist.clone());
+        }
+    }
+
+    let normalized_name = normalize_name(artist_name);
+    artists
+        .iter()
+        .find(|artist| {
+            artist
+                .get("name")
+                .and_then(|name| name.as_str())
+                .is_some_and(|name| normalize_name(name) == normalized_name)
+        })
+        .cloned()
+        .or_else(|| artists.into_iter().next())
 }
 
 async fn sync_lastfm_artist(
@@ -354,38 +572,16 @@ async fn sync_lastfm_artist(
         artist["bio"]["summary"].as_str(),
         artist["bio"]["content"].as_str(),
     );
-    let image_url = lastfm_image_url(artist);
-    sqlx::query("UPDATE artists SET lastfm_artist_url=?, lastfm_listeners=?, lastfm_playcount=?, mbid=COALESCE(NULLIF(?, ''), mbid), image_url=COALESCE(?, image_url), bio_summary=COALESCE(?, bio_summary), updated_at=datetime('now') WHERE id=?")
+    sqlx::query("UPDATE artists SET lastfm_artist_url=?, lastfm_listeners=?, lastfm_playcount=?, mbid=COALESCE(NULLIF(?, ''), mbid), bio_summary=COALESCE(?, bio_summary), updated_at=datetime('now') WHERE id=?")
         .bind(url)
         .bind(listeners)
         .bind(playcount)
         .bind(mbid)
-        .bind(image_url)
         .bind(bio)
         .bind(artist_id)
         .execute(pool)
         .await?;
     Ok(true)
-}
-
-fn lastfm_image_url(artist: &serde_json::Value) -> Option<String> {
-    artist
-        .get("image")
-        .and_then(|image| image.as_array())
-        .and_then(|images| {
-            images.iter().rev().find_map(|image| {
-                image
-                    .get("#text")
-                    .and_then(|url| url.as_str())
-                    .map(str::trim)
-                    .filter(|url| {
-                        !url.is_empty()
-                            && !url.contains("2a96cbd8b46e442fc41c2b86b821562f")
-                            && !url.contains("c6f59c1e5e7240a4c0d427abd71f3dbb")
-                    })
-                    .map(ToString::to_string)
-            })
-        })
 }
 
 fn clean_lastfm_bio(summary: Option<&str>, content: Option<&str>) -> Option<String> {
@@ -666,6 +862,12 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    async fn test_pool() -> sqlx::SqlitePool {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        crate::db::migrate(&pool).await.unwrap();
+        pool
+    }
+
     #[test]
     fn validates_subsonic_api_errors() {
         let response = json!({
@@ -737,6 +939,96 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn reconcile_track_identity_updates_stale_path_to_new_subsonic_id() {
+        let pool = test_pool().await;
+        sqlx::query(
+            "INSERT INTO tracks(subsonic_id,title,file_path,mbid)
+             VALUES('old-id','Song','Artist/Album/01 - Song.flac',NULL)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        reconcile_track_identity_change(&pool, Some("new-id"), Some("Artist/Album/01 - Song.flac"))
+            .await
+            .unwrap();
+
+        let rows = sqlx::query_as::<_, (i64, String, Option<String>)>(
+            "SELECT id, subsonic_id, mbid FROM tracks",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+
+        assert_eq!(rows, vec![(1, "new-id".to_string(), None)]);
+    }
+
+    #[tokio::test]
+    async fn reconcile_track_identity_removes_old_duplicate_when_new_id_already_exists() {
+        let pool = test_pool().await;
+        sqlx::query(
+            "INSERT INTO tracks(id,subsonic_id,title,file_path,mbid)
+             VALUES
+               (1,'old-id','Song','Artist/Album/01 - Song.flac',NULL),
+               (2,'new-id','Song','Artist/Album/01 - Song.flac','8b5a3d8c-f28a-42da-a2df-47c84fe2a7f7')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO plays(track_id, played_at, source) VALUES(1, datetime('now'), 'test')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        reconcile_track_identity_change(&pool, Some("new-id"), Some("Artist/Album/01 - Song.flac"))
+            .await
+            .unwrap();
+
+        let (track_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM tracks")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let (play_track_id,): (i64,) = sqlx::query_as("SELECT track_id FROM plays")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+        assert_eq!(track_count, 1);
+        assert_eq!(play_track_id, 2);
+    }
+
+    #[tokio::test]
+    async fn remove_stale_subsonic_tracks_keeps_only_seen_track_ids() {
+        let pool = test_pool().await;
+        sqlx::query(
+            "INSERT INTO tracks(id,subsonic_id,title)
+             VALUES
+               (1,'seen-id','Seen Song'),
+               (2,'stale-id','Stale Song'),
+               (3,NULL,'Local Song')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let seen_track_ids = HashSet::from(["seen-id".to_string()]);
+
+        let removed = remove_stale_subsonic_tracks(&pool, &seen_track_ids)
+            .await
+            .unwrap();
+        let rows = sqlx::query_as::<_, (i64, Option<String>)>(
+            "SELECT id, subsonic_id FROM tracks ORDER BY id",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+
+        assert_eq!(removed, 1);
+        assert_eq!(rows, vec![(1, Some("seen-id".to_string())), (3, None)]);
+    }
+
     #[test]
     fn cleans_lastfm_bio_text() {
         let bio = clean_lastfm_bio(
@@ -748,17 +1040,37 @@ mod tests {
     }
 
     #[test]
-    fn extracts_largest_non_empty_lastfm_artist_image() {
-        let artist = json!({
-            "image": [
-                { "#text": "", "size": "small" },
-                { "#text": "https://lastfm.freetls.fastly.net/i/u/300x300/avatar.jpg", "size": "large" }
-            ]
-        });
+    fn selects_subsonic_artist_by_id_before_name() {
+        let artists = vec![
+            json!({ "id": "other-id", "name": "2hollis" }),
+            json!({ "id": "subsonic-id", "name": "Two Hollis" }),
+        ];
 
         assert_eq!(
-            lastfm_image_url(&artist).as_deref(),
-            Some("https://lastfm.freetls.fastly.net/i/u/300x300/avatar.jpg")
+            select_subsonic_artist_match(artists, "2hollis", Some("subsonic-id"))
+                .and_then(|artist| artist["id"].as_str().map(ToString::to_string))
+                .as_deref(),
+            Some("subsonic-id")
+        );
+    }
+
+    #[test]
+    fn selects_subsonic_artist_by_normalized_name() {
+        let artists = vec![
+            json!({ "id": "wrong", "name": "Hollis" }),
+            json!({
+                "id": "right",
+                "name": "2hollis",
+                "artistImageUrl": "https://music.example/share/img/token?size=600"
+            }),
+        ];
+
+        let artist = select_subsonic_artist_match(artists, "2HOLLIS", None).unwrap();
+
+        assert_eq!(artist["id"].as_str(), Some("right"));
+        assert_eq!(
+            first_non_empty_string(&artist, &["artistImageUrl"]).as_deref(),
+            Some("https://music.example/share/img/token?size=600")
         );
     }
 }
