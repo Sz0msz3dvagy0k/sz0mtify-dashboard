@@ -1,8 +1,8 @@
 use anyhow::{anyhow, Context};
+use md5::{Digest, Md5};
 use rand::RngCore;
 use reqwest::Client;
 use serde_json::json;
-use sha1::{Digest, Sha1};
 use std::collections::HashSet;
 use std::env;
 use tracing::{info, warn};
@@ -659,9 +659,7 @@ pub(crate) fn subsonic_auth_query(cfg: &SubsonicConfig) -> Vec<(String, String)>
     let mut salt_bytes = [0_u8; 16];
     rand::thread_rng().fill_bytes(&mut salt_bytes);
     let salt = hex::encode(salt_bytes);
-    let mut hasher = Sha1::new();
-    hasher.update(format!("{}{}", cfg.password, salt).as_bytes());
-    let token = hex::encode(hasher.finalize());
+    let token = subsonic_token(&cfg.password, &salt);
 
     vec![
         ("u".to_string(), cfg.username.clone()),
@@ -671,6 +669,12 @@ pub(crate) fn subsonic_auth_query(cfg: &SubsonicConfig) -> Vec<(String, String)>
         ("c".to_string(), "music-dashboard".to_string()),
         ("f".to_string(), "json".to_string()),
     ]
+}
+
+fn subsonic_token(password: &str, salt: &str) -> String {
+    let mut hasher = Md5::new();
+    hasher.update(format!("{password}{salt}").as_bytes());
+    hex::encode(hasher.finalize())
 }
 
 async fn subsonic_get_json(
@@ -934,6 +938,14 @@ mod tests {
             .expect_err("failed Subsonic responses must be surfaced");
 
         assert!(error.to_string().contains("Wrong username or password"));
+    }
+
+    #[test]
+    fn subsonic_token_uses_md5_password_plus_salt() {
+        assert_eq!(
+            subsonic_token("password", "salt"),
+            "b305cadbb3bce54f3aa59c64fec00dea"
+        );
     }
 
     #[test]

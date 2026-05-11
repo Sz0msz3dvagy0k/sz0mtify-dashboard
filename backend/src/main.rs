@@ -1,4 +1,5 @@
 mod api;
+mod auth;
 mod db;
 mod services;
 mod utils;
@@ -6,6 +7,7 @@ mod utils;
 use std::{collections::HashSet, env, net::SocketAddr, sync::Arc, time::Duration};
 
 use axum::{
+    middleware,
     routing::{get, post},
     Router,
 };
@@ -97,7 +99,7 @@ async fn run() -> anyhow::Result<()> {
         settings: SettingsService,
     });
 
-    let app = Router::new()
+    let mut app = Router::new()
         .route("/api/health", get(api::handlers::health))
         .route(
             "/api/settings",
@@ -153,9 +155,16 @@ async fn run() -> anyhow::Result<()> {
             get(api::handlers::current_rotation),
         )
         .route("/api/search", get(api::handlers::search))
-        .route("/api/cover/:cover_art_id", get(api::handlers::cover))
-        .layer(TraceLayer::new_for_http())
-        .with_state(state);
+        .route("/api/cover/:cover_art_id", get(api::handlers::cover));
+
+    if let Some(verifier) = auth::CloudflareAccessVerifier::from_env().await? {
+        app = app.layer(middleware::from_fn_with_state(
+            Arc::new(verifier),
+            auth::require_cloudflare_access,
+        ));
+    }
+
+    let app = app.layer(TraceLayer::new_for_http()).with_state(state);
 
     let host = env::var("BACKEND_HOST").unwrap_or_else(|_| "0.0.0.0".into());
     let port = env::var("BACKEND_PORT").unwrap_or_else(|_| "8080".into());
