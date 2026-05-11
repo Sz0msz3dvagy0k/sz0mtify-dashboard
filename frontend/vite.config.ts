@@ -1,3 +1,17 @@
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
-export default defineConfig({ plugins: [sveltekit()] });
+
+const allowedHosts = [
+	'dashboard.szomszed.me',
+	...(process.env.FRONTEND_ALLOWED_HOSTS ?? '')
+		.split(',')
+		.map((host) => host.trim())
+		.filter(Boolean)
+];
+
+export default defineConfig({
+	plugins: [sveltekit()],
+	server: {
+		allowedHosts
+	}
+});
