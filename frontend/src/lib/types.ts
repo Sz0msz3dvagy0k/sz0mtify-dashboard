@@ -110,4 +110,4 @@ export type SearchResult = {
 	artists: [number, string][];
 };
 
-export type SyncStatus = [number, string, string, string][];
+export type SyncStatus = [number, string, string, string, string][];

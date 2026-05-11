@@ -3,7 +3,7 @@ mod db;
 mod services;
 mod utils;
 
-use std::{env, net::SocketAddr, sync::Arc};
+use std::{collections::HashSet, env, net::SocketAddr, sync::Arc};
 
 use axum::{
     routing::{get, post},
@@ -74,6 +74,7 @@ async fn run() -> anyhow::Result<()> {
     let state = Arc::new(AppState {
         pool: pool.clone(),
         sync: SyncService::new(),
+        sync_jobs: Arc::new(tokio::sync::Mutex::new(HashSet::new())),
         analytics: AnalyticsService,
         discovery: DiscoveryService,
         recommendations: RecommendationService,

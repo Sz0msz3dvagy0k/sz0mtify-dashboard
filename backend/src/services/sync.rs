@@ -3,7 +3,7 @@ use reqwest::Client;
 use serde_json::json;
 use std::collections::HashSet;
 use std::env;
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 
 use crate::services::lastfm::LastfmClient;
 use crate::utils::matching::normalize_name;
@@ -85,21 +85,21 @@ impl SyncService {
         result
     }
     pub async fn status(&self, pool: &sqlx::SqlitePool) -> anyhow::Result<serde_json::Value> {
-        let rows = sqlx::query_as::<_, (i64, String, String, String)>(
-            "SELECT id,source,COALESCE(last_sync_at,''),COALESCE(status,'unknown') FROM sync_state",
+        let rows = sqlx::query_as::<_, (i64, String, String, String, String)>(
+            "SELECT id,source,COALESCE(last_sync_at,''),COALESCE(status,'unknown'),COALESCE(error_message,'') FROM sync_state",
         )
         .fetch_all(pool)
         .await?;
         Ok(json!(rows))
     }
 
-    pub async fn track_count(&self, pool: &sqlx::SqlitePool) -> anyhow::Result<i64> {
-        debug!("loading track count from database");
-        let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM tracks")
-            .fetch_one(pool)
-            .await?;
-        info!(track_count = count, "loaded track count");
-        Ok(count)
+    pub async fn mark_running(
+        &self,
+        pool: &sqlx::SqlitePool,
+        id: i64,
+        source: &str,
+    ) -> anyhow::Result<()> {
+        write_sync_state(pool, id, source, "running", None).await
     }
 }
 
@@ -682,15 +682,58 @@ async fn subsonic_get_json(
         .query(&query)
         .send()
         .await
-        .with_context(|| format!("failed to send Subsonic {endpoint} request"))?
-        .error_for_status()
-        .with_context(|| format!("Subsonic {endpoint} request returned an HTTP error"))?
-        .json::<serde_json::Value>()
-        .await
+        .map_err(|error| {
+            anyhow!(
+                "failed to send Subsonic {endpoint} request: {}",
+                describe_reqwest_error(&error)
+            )
+        })?;
+
+    let status = response.status();
+    let body = response.text().await.map_err(|error| {
+        anyhow!(
+            "failed to read Subsonic {endpoint} response: {}",
+            describe_reqwest_error(&error)
+        )
+    })?;
+
+    if !status.is_success() {
+        return Err(anyhow!(
+            "Subsonic {endpoint} request returned HTTP {status}: {}",
+            response_body_excerpt(&body)
+        ));
+    }
+
+    let response = serde_json::from_str::<serde_json::Value>(&body)
         .with_context(|| format!("failed to parse Subsonic {endpoint} response"))?;
 
     validate_subsonic_response(&response, endpoint)?;
     Ok(response)
+}
+
+fn describe_reqwest_error(error: &reqwest::Error) -> &'static str {
+    if error.is_timeout() {
+        "request timed out"
+    } else if error.is_connect() {
+        "connection failed"
+    } else if error.is_decode() {
+        "response decoding failed"
+    } else if error.is_request() {
+        "request could not be built"
+    } else {
+        "request failed"
+    }
+}
+
+fn response_body_excerpt(body: &str) -> String {
+    const MAX_LENGTH: usize = 300;
+    let collapsed = body.split_whitespace().collect::<Vec<_>>().join(" ");
+    if collapsed.chars().count() <= MAX_LENGTH {
+        return collapsed;
+    }
+
+    let excerpt = collapsed.chars().take(MAX_LENGTH).collect::<String>();
+    format!("{excerpt}...")
 }
 
 fn validate_subsonic_response(response: &serde_json::Value, endpoint: &str) -> anyhow::Result<()> {

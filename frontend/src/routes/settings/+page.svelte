@@ -28,7 +28,7 @@
 		message = '';
 		try {
 			await fn();
-			message = `${label} complete`;
+			message = `${label} started`;
 			await load();
 		} catch (e) {
 			error = e instanceof Error ? e.message : `${label} failed`;
@@ -53,5 +53,5 @@
 	<button class="button ghost" disabled={!!busy} on:click={() => run('Discovery refresh', () => api.refreshDiscovery(10))}>Discovery Refresh</button>
 	{#if message}<span class="muted">{message}</span>{/if}
 </div>
-<DataTable columns={['ID', 'Source', 'Last Sync', 'Status']} rows={status} />
+<DataTable columns={['ID', 'Source', 'Last Sync', 'Status', 'Error']} rows={status} />
 <DataTable columns={['Setting', 'Value']} rows={safeSettings} />

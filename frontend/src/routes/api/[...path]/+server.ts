@@ -20,16 +20,46 @@ const proxy: RequestHandler = async ({ request, params, url }) => {
 	const headers = new Headers(request.headers);
 	headers.delete('host');
 
-	const response = await fetch(target, {
-		method: request.method,
-		headers,
-		body: request.method === 'GET' || request.method === 'HEAD' ? undefined : await request.arrayBuffer(),
-		redirect: 'manual'
-	});
+	let response: Response;
+	try {
+		response = await fetch(target, {
+			method: request.method,
+			headers,
+			body: request.method === 'GET' || request.method === 'HEAD' ? undefined : await request.arrayBuffer(),
+			redirect: 'manual'
+		});
+	} catch (error) {
+		console.error('Backend proxy request failed', {
+			method: request.method,
+			path: target.pathname,
+			error: error instanceof Error ? error.message : String(error)
+		});
+		return new Response(JSON.stringify({ ok: false, error: 'backend_proxy_request_failed' }), {
+			status: 502,
+			headers: { 'content-type': 'application/json' }
+		});
+	}
 
 	const responseHeaders = new Headers(response.headers);
 	for (const header of hopByHopHeaders) {
 		responseHeaders.delete(header);
+	}
+
+	if (!response.ok) {
+		const body = await response.arrayBuffer();
+		const text = new TextDecoder().decode(body).slice(0, 500);
+		console.error('Backend proxy returned an error', {
+			method: request.method,
+			path: target.pathname,
+			status: response.status,
+			body: text
+		});
+
+		return new Response(body, {
+			status: response.status,
+			statusText: response.statusText,
+			headers: responseHeaders
+		});
 	}
 
 	return new Response(response.body, {

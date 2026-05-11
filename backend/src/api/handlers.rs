@@ -12,6 +12,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
+use tracing::{error, info};
 
 use crate::services::discovery::{DiscoveryListOptions, DiscoveryRefreshOptions};
 use crate::services::{sync::SubsonicConfig, AppState};
@@ -64,68 +65,139 @@ pub async fn save_settings(
 }
 
 pub async fn sync_subsonic(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    match state.sync.sync_subsonic(&state.pool).await {
-        Ok(imported_tracks) => (
-            StatusCode::OK,
-            ok(json!({"source": "subsonic", "imported_tracks": imported_tracks})),
-        ),
-        Err(error) => (
-            StatusCode::BAD_GATEWAY,
-            err(&format!("failed_to_sync_subsonic: {error}")),
-        ),
+    if !reserve_sync_jobs(&state, &["subsonic"]).await {
+        return (StatusCode::CONFLICT, err("sync_already_running: subsonic"));
     }
+
+    if let Err(error) = state.sync.mark_running(&state.pool, 1, "subsonic").await {
+        release_sync_jobs(&state, &["subsonic"]).await;
+        return (
+            StatusCode::BAD_GATEWAY,
+            err(&format!("failed_to_start_subsonic_sync: {error}")),
+        );
+    }
+
+    let job_state = state.clone();
+    tokio::spawn(async move {
+        match job_state.sync.sync_subsonic(&job_state.pool).await {
+            Ok(imported_tracks) => {
+                info!(source = "subsonic", imported_tracks, "sync job completed");
+            }
+            Err(error) => {
+                error!(source = "subsonic", error = %error, "sync job failed");
+            }
+        }
+        release_sync_jobs(&job_state, &["subsonic"]).await;
+    });
+
+    (
+        StatusCode::ACCEPTED,
+        ok(json!({"source": "subsonic", "status": "started"})),
+    )
 }
 
 pub async fn sync_lastfm(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    match state.sync.sync_lastfm(&state.pool).await {
-        Ok(updated_artists) => (
-            StatusCode::OK,
-            ok(json!({"source": "lastfm", "updated_artists": updated_artists})),
-        ),
-        Err(error) => (
-            StatusCode::BAD_GATEWAY,
-            err(&format!("failed_to_sync_lastfm: {error}")),
-        ),
+    if !reserve_sync_jobs(&state, &["lastfm"]).await {
+        return (StatusCode::CONFLICT, err("sync_already_running: lastfm"));
     }
+
+    if let Err(error) = state.sync.mark_running(&state.pool, 2, "lastfm").await {
+        release_sync_jobs(&state, &["lastfm"]).await;
+        return (
+            StatusCode::BAD_GATEWAY,
+            err(&format!("failed_to_start_lastfm_sync: {error}")),
+        );
+    }
+
+    let job_state = state.clone();
+    tokio::spawn(async move {
+        match job_state.sync.sync_lastfm(&job_state.pool).await {
+            Ok(updated_artists) => {
+                info!(source = "lastfm", updated_artists, "sync job completed");
+            }
+            Err(error) => {
+                error!(source = "lastfm", error = %error, "sync job failed");
+            }
+        }
+        release_sync_jobs(&job_state, &["lastfm"]).await;
+    });
+
+    (
+        StatusCode::ACCEPTED,
+        ok(json!({"source": "lastfm", "status": "started"})),
+    )
 }
 
 pub async fn sync_all(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let subsonic_result = state.sync.sync_subsonic(&state.pool).await;
-    let lastfm_result = state.sync.sync_lastfm(&state.pool).await;
-    let track_count = state
-        .sync
-        .track_count(&state.pool)
-        .await
-        .unwrap_or_default();
-    let ok = subsonic_result.is_ok() && lastfm_result.is_ok();
-    let status = if ok {
-        StatusCode::OK
-    } else {
-        StatusCode::BAD_GATEWAY
-    };
+    if !reserve_sync_jobs(&state, &["subsonic", "lastfm"]).await {
+        return (StatusCode::CONFLICT, err("sync_already_running"));
+    }
 
-    let subsonic_error = subsonic_result.as_ref().err().map(ToString::to_string);
-    let lastfm_error = lastfm_result.as_ref().err().map(ToString::to_string);
-    let subsonic_imported_tracks = subsonic_result.unwrap_or_default();
-    let lastfm_updated_artists = lastfm_result.unwrap_or_default();
+    if let Err(error) = state.sync.mark_running(&state.pool, 1, "subsonic").await {
+        release_sync_jobs(&state, &["subsonic", "lastfm"]).await;
+        return (
+            StatusCode::BAD_GATEWAY,
+            err(&format!("failed_to_start_full_sync: {error}")),
+        );
+    }
+    if let Err(error) = state.sync.mark_running(&state.pool, 2, "lastfm").await {
+        release_sync_jobs(&state, &["subsonic", "lastfm"]).await;
+        return (
+            StatusCode::BAD_GATEWAY,
+            err(&format!("failed_to_start_full_sync: {error}")),
+        );
+    }
+
+    let job_state = state.clone();
+    tokio::spawn(async move {
+        match job_state.sync.sync_subsonic(&job_state.pool).await {
+            Ok(imported_tracks) => {
+                info!(
+                    source = "subsonic",
+                    imported_tracks, "full sync step completed"
+                );
+            }
+            Err(error) => {
+                error!(source = "subsonic", error = %error, "full sync step failed");
+            }
+        }
+
+        match job_state.sync.sync_lastfm(&job_state.pool).await {
+            Ok(updated_artists) => {
+                info!(
+                    source = "lastfm",
+                    updated_artists, "full sync step completed"
+                );
+            }
+            Err(error) => {
+                error!(source = "lastfm", error = %error, "full sync step failed");
+            }
+        }
+        release_sync_jobs(&job_state, &["subsonic", "lastfm"]).await;
+    });
 
     (
-        status,
-        Json(json!({
-            "ok": ok,
-            "data": {
-                "subsonic": subsonic_error.is_none(),
-                "lastfm": lastfm_error.is_none(),
-                "track_count": track_count,
-                "subsonic_imported_tracks": subsonic_imported_tracks,
-                "lastfm_updated_artists": lastfm_updated_artists,
-                "errors": {
-                    "subsonic": subsonic_error,
-                    "lastfm": lastfm_error
-                }
-            }
-        })),
+        StatusCode::ACCEPTED,
+        ok(json!({"source": "all", "status": "started"})),
     )
+}
+
+async fn reserve_sync_jobs(state: &Arc<AppState>, sources: &[&str]) -> bool {
+    let mut running = state.sync_jobs.lock().await;
+    if sources.iter().any(|source| running.contains(*source)) {
+        return false;
+    }
+    for source in sources {
+        running.insert((*source).to_string());
+    }
+    true
+}
+
+async fn release_sync_jobs(state: &Arc<AppState>, sources: &[&str]) {
+    let mut running = state.sync_jobs.lock().await;
+    for source in sources {
+        running.remove(*source);
+    }
 }
 
 pub async fn sync_status(State(state): State<Arc<AppState>>) -> Json<Value> {
