@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    enironment:
+    environment:
       - DATABASE_URL: ${DATABASE_URL}
       - BACKEND_PORT: ${BACKEND_PORT}
       - BACKEND_HOST: ${BACKEND_HOST}
@@ -15,7 +15,7 @@ services:
       - LASTFM_API_USERNAME: ${LASTFM_API_USERNAME}
       - FRONTEND_API_BASE_URL: ${FRONTEND_API_BASE_URL}
       - SEED_MODE: ${SEED_MODE}
-    ports: ["8080:8080"]
+    ports: "[::1]:8080:8080"
     volumes:
       - data:/data
   frontend:
@@ -24,7 +24,7 @@ services:
       dockerfile: frontend/Dockerfile
     environment:
       - FRONTEND_API_BASE_URL: ${FRONTEND_API_BASE_URL}
-    ports: ["5173:5173"]
-    depends_on: [backend]
+    ports: "[::1]:5173:5173"
+    depends_on: backend
 volumes:
   data:
