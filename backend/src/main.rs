@@ -155,6 +155,10 @@ async fn run() -> anyhow::Result<()> {
             get(api::handlers::current_rotation),
         )
         .route("/api/search", get(api::handlers::search))
+        .route(
+            "/api/artist-image/:artist_id",
+            get(api::handlers::artist_image),
+        )
         .route("/api/cover/:cover_art_id", get(api::handlers::cover));
 
     if let Some(verifier) = auth::CloudflareAccessVerifier::from_env().await? {

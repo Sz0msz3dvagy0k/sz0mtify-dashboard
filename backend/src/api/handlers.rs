@@ -411,6 +411,45 @@ pub async fn cover(
     }
 }
 
+pub async fn artist_image(
+    State(state): State<Arc<AppState>>,
+    Path(artist_id): Path<i64>,
+) -> Response {
+    if artist_id <= 0 {
+        return (StatusCode::BAD_REQUEST, err("invalid_artist_id")).into_response();
+    }
+
+    let image_url = sqlx::query_as::<_, (Option<String>,)>(
+        "SELECT image_url FROM artists WHERE id = ? LIMIT 1",
+    )
+    .bind(artist_id)
+    .fetch_optional(&state.pool)
+    .await;
+
+    let image_url = match image_url {
+        Ok(Some((Some(image_url),))) if !image_url.trim().is_empty() => image_url,
+        Ok(Some(_)) | Ok(None) => {
+            return (StatusCode::NOT_FOUND, err("artist_image_not_found")).into_response();
+        }
+        Err(_) => return err("failed_to_load_artist_image").into_response(),
+    };
+
+    match fetch_artist_image(&state.pool, &image_url).await {
+        Ok((content_type, bytes)) => image_response(
+            &content_type,
+            &format!("\"artist-{}-{}\"", artist_id, bytes.len()),
+            bytes,
+        ),
+        Err(error) if error.to_string().contains("not found") => {
+            (StatusCode::NOT_FOUND, err("artist_image_not_found")).into_response()
+        }
+        Err(error) => {
+            warn!(artist_id, error = %error, "failed to fetch artist image");
+            (StatusCode::BAD_GATEWAY, err("failed_to_fetch_artist_image")).into_response()
+        }
+    }
+}
+
 fn is_valid_cover_art_id(cover_art_id: &str) -> bool {
     !cover_art_id.is_empty()
         && cover_art_id.len() <= 256
@@ -446,6 +485,65 @@ async fn fetch_cover_art(
         anyhow::bail!("cover art not found");
     }
     Ok((content_type, bytes))
+}
+
+async fn fetch_artist_image(
+    pool: &sqlx::SqlitePool,
+    image_url: &str,
+) -> anyhow::Result<(String, Bytes)> {
+    let cfg = SubsonicConfig::load(pool).await?;
+    let url = resolve_artist_image_url(&cfg.base_url, image_url)?;
+    let response = reqwest::Client::new().get(url).send().await?;
+    let status = response.status();
+    if status == reqwest::StatusCode::NOT_FOUND {
+        anyhow::bail!("artist image not found");
+    }
+    if !status.is_success() {
+        anyhow::bail!("Navidrome artist image returned HTTP {status}");
+    }
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(infer_image_content_type)
+        .unwrap_or_else(|| "application/octet-stream".to_string());
+    let bytes = response.bytes().await?;
+    if bytes.is_empty() {
+        anyhow::bail!("artist image not found");
+    }
+    Ok((content_type, bytes))
+}
+
+fn resolve_artist_image_url(base_url: &str, image_url: &str) -> anyhow::Result<reqwest::Url> {
+    let base = reqwest::Url::parse(&format!("{}/", base_url.trim_end_matches('/')))?;
+    let resolved = base.join(image_url.trim())?;
+    if resolved.scheme() != base.scheme()
+        || resolved.host_str() != base.host_str()
+        || resolved.port_or_known_default() != base.port_or_known_default()
+    {
+        anyhow::bail!("artist image URL is outside the configured Subsonic origin");
+    }
+    if resolved.path() != "/share/img" && !resolved.path().starts_with("/share/img/") {
+        anyhow::bail!("artist image URL is not a Navidrome /share/img URL");
+    }
+    Ok(resolved)
+}
+
+fn image_response(content_type: &str, etag: &str, bytes: Bytes) -> Response {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        CONTENT_TYPE,
+        HeaderValue::from_str(content_type)
+            .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
+    );
+    headers.insert(
+        CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=86400, stale-while-revalidate=604800"),
+    );
+    if let Ok(etag) = HeaderValue::from_str(etag) {
+        headers.insert(ETAG, etag);
+    }
+    (StatusCode::OK, headers, bytes).into_response()
 }
 
 fn infer_image_content_type(content_type: &str) -> String {
@@ -523,5 +621,72 @@ mod tests {
             infer_image_content_type("image/jpeg; charset=utf-8"),
             "image/jpeg"
         );
+    }
+
+    #[test]
+    fn artist_image_url_resolves_only_configured_share_img_urls() {
+        let url =
+            resolve_artist_image_url("http://music.example", "/share/img/token?size=600").unwrap();
+        assert_eq!(
+            url.as_str(),
+            "http://music.example/share/img/token?size=600"
+        );
+
+        let absolute = resolve_artist_image_url(
+            "http://music.example",
+            "http://music.example/share/img/token",
+        )
+        .unwrap();
+        assert_eq!(absolute.as_str(), "http://music.example/share/img/token");
+
+        assert!(resolve_artist_image_url(
+            "http://music.example",
+            "http://other.example/share/img/token"
+        )
+        .is_err());
+        assert!(
+            resolve_artist_image_url("http://music.example", "/rest/getCoverArt?id=1").is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn artist_image_fetch_returns_navidrome_share_image_bytes() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buffer = [0_u8; 2048];
+            let read = socket.read(&mut buffer).await.unwrap();
+            let request = String::from_utf8_lossy(&buffer[..read]);
+            assert!(request.starts_with("GET /share/img/token?size=600 HTTP/1.1"));
+
+            let body = b"\xff\xd8\xff";
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: image/jpeg; charset=utf-8\r\nContent-Length: {}\r\n\r\n",
+                body.len()
+            );
+            socket.write_all(response.as_bytes()).await.unwrap();
+            socket.write_all(body).await.unwrap();
+        });
+
+        let pool = test_pool().await;
+        sqlx::query(
+            "INSERT INTO settings(key,value) VALUES
+             ('subsonic_base_url', ?),
+             ('subsonic_username', 'user'),
+             ('subsonic_password', 'pass')",
+        )
+        .bind(format!("http://{addr}"))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let (content_type, bytes) = fetch_artist_image(&pool, "/share/img/token?size=600")
+            .await
+            .unwrap();
+        server.await.unwrap();
+
+        assert_eq!(content_type, "image/jpeg");
+        assert_eq!(&bytes[..], b"\xff\xd8\xff");
     }
 }

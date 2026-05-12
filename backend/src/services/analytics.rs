@@ -64,7 +64,11 @@ impl AnalyticsService {
                     ar.album_count,
                     ar.track_count,
                     ar.play_count,
-                    ar.image_url,
+                    CASE
+                        WHEN ar.image_url IS NOT NULL AND ar.image_url != ''
+                        THEN '/api/artist-image/' || ar.id
+                        ELSE NULL
+                    END AS image_url,
                     (
                         SELECT al.cover_art_id
                         FROM albums al
@@ -110,8 +114,31 @@ impl AnalyticsService {
         p: &sqlx::SqlitePool,
         id: i64,
     ) -> anyhow::Result<serde_json::Value> {
-        let artist = sqlx::query_as::<_, (i64, String, Option<i64>, Option<i64>, Option<i64>, Option<String>, Option<String>)>(
-            "SELECT id, name, album_count, track_count, play_count, bio_summary, image_url FROM artists WHERE id = ?",
+        let artist = sqlx::query_as::<
+            _,
+            (
+                i64,
+                String,
+                Option<i64>,
+                Option<i64>,
+                Option<i64>,
+                Option<String>,
+                Option<String>,
+            ),
+        >(
+            "SELECT id,
+                    name,
+                    album_count,
+                    track_count,
+                    play_count,
+                    bio_summary,
+                    CASE
+                        WHEN image_url IS NOT NULL AND image_url != ''
+                        THEN '/api/artist-image/' || id
+                        ELSE NULL
+                    END AS image_url
+             FROM artists
+             WHERE id = ?",
         )
         .bind(id)
         .fetch_optional(p)
