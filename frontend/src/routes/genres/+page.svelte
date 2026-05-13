@@ -34,6 +34,7 @@
 	$: selectedGenreTracks = selectedGenre ? tracks.filter((track) => (track[5] ?? 'Unknown') === selectedGenre) : [];
 	$: genreRows = genres.slice(0, 18).map((g) => [g[1], g[2] ?? 0, g[3] ?? 0, g[4] ?? 0]);
 	$: genreLinks = genres.slice(0, 18).map((g) => [`/genres?genre=${encodeURIComponent(g[1])}`, null, null, null]);
+	$: rankedGenres = storage?.size_by_genre.slice(0, 16).reverse() ?? [];
 </script>
 
 {#if loading}
@@ -50,7 +51,10 @@
 		<ChartCard
 			title="Genre Distribution"
 			option={{
-				series: [{ type: 'treemap', roam: false, breadcrumb: { show: false }, data: storage.size_by_genre.slice(0, 24).map(([name, bytes]) => ({ name: name ?? 'Unknown', value: bytes })), color: ['#f5f5f5', '#cfcfcf', '#9f9f9f', '#6f6f6f', '#404040'] }]
+				grid: { left: 132, right: 28, top: 18, bottom: 28 },
+				xAxis: { type: 'value', axisLabel: { color: '#8a8a8a', formatter: (value: number) => formatBytes(value) }, splitLine: { lineStyle: { color: '#262626' } } },
+				yAxis: { type: 'category', data: rankedGenres.map(([name]) => name ?? 'Unknown'), axisLabel: { color: '#a3a3a3' } },
+				series: [{ type: 'bar', data: rankedGenres.map(([, bytes]) => bytes), color: '#f5f5f5' }]
 			}}
 			height={340}
 		/>

@@ -23,6 +23,8 @@
 		}
 	}
 	onMount(load);
+	$: rankedArtists = storage?.size_by_artist.slice(0, 16).reverse() ?? [];
+	$: rankedExtensions = storage?.extension_breakdown.slice(0, 12).reverse() ?? [];
 </script>
 
 {#if loading}
@@ -39,12 +41,22 @@
 	<section class="dashboard-grid">
 		<ChartCard
 			title="Storage by Artist"
-			option={{ series: [{ type: 'treemap', roam: false, breadcrumb: { show: false }, data: storage.size_by_artist.slice(0, 30).map(([_, name, bytes]) => ({ name: name ?? 'Unknown', value: bytes })), color: ['#f5f5f5', '#cfcfcf', '#9f9f9f', '#6f6f6f', '#404040'] }] }}
+			option={{
+				grid: { left: 132, right: 28, top: 18, bottom: 28 },
+				xAxis: { type: 'value', axisLabel: { color: '#8a8a8a', formatter: (value: number) => formatBytes(value) }, splitLine: { lineStyle: { color: '#262626' } } },
+				yAxis: { type: 'category', data: rankedArtists.map(([, name]) => name ?? 'Unknown'), axisLabel: { color: '#a3a3a3' } },
+				series: [{ type: 'bar', data: rankedArtists.map(([, , bytes]) => bytes), color: '#f5f5f5' }]
+			}}
 			height={360}
 		/>
 		<ChartCard
 			title="Extension Breakdown"
-			option={{ series: [{ type: 'pie', radius: ['45%', '72%'], data: storage.extension_breakdown.map(([name, tracks]) => ({ name: name ?? 'unknown', value: tracks })), color: ['#f5f5f5', '#8a8a8a', '#525252'] }] }}
+			option={{
+				grid: { left: 80, right: 28, top: 18, bottom: 28 },
+				xAxis: { type: 'value', axisLabel: { color: '#8a8a8a' }, splitLine: { lineStyle: { color: '#262626' } } },
+				yAxis: { type: 'category', data: rankedExtensions.map(([name]) => name ?? 'unknown'), axisLabel: { color: '#a3a3a3' } },
+				series: [{ type: 'bar', data: rankedExtensions.map(([, tracks]) => tracks), color: '#d4d4d4' }]
+			}}
 		/>
 	</section>
 	<DataTable columns={['Largest Album', 'Size', 'Tracks']} rows={storage.largest_albums.slice(0, 12).map((a) => [a[1], formatBytes(a[3]), a[4]])} />
