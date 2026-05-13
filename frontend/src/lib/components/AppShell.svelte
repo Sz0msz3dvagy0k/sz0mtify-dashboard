@@ -43,6 +43,10 @@
 	});
 </script>
 
+<svelte:head>
+	<title>{current.label} · Archive</title>
+</svelte:head>
+
 <div class="app-shell">
 	<aside class="sidebar">
 		<a class="brand" href="/overview">
