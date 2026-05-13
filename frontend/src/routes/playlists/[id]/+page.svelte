@@ -9,7 +9,7 @@
 	import StatCard from '$lib/components/StatCard.svelte';
 	import TrackRow from '$lib/components/TrackRow.svelte';
 	import { coverUrl, formatDuration, formatNumber } from '$lib/format';
-	import { playQueue, type QueueTrack } from '$lib/player';
+	import { player, playQueue, type QueueTrack } from '$lib/player';
 
 	let detail: PlaylistDetail | null = null;
 	let loading = true;
@@ -51,6 +51,7 @@
 	$: playlistId = $page.params.id;
 	$: if (browser && playlistId && playlistId !== loadedPlaylistId) void load(playlistId);
 	$: playlistCoverArtId = detail?.playlist.cover_art_id ?? detail?.tracks.find((track) => track[5])?.[5] ?? null;
+	$: playingTrackId = $player.isPlaying ? $player.queue[$player.currentIndex]?.id ?? null : null;
 </script>
 
 {#if loading}
@@ -78,8 +79,12 @@
 
 	<div class="panel-list">
 		{#each detail.tracks as track, index}
-			<div class="playable-row playlist-row">
-				<button class="icon-button" aria-label={`Play ${track[1]}`} on:click={() => play(index)}>▶</button>
+			<div class="playable-row playlist-row" class:playing-row={track[0] === playingTrackId}>
+				{#if track[0] === playingTrackId}
+					<div class="playing-indicator" aria-label="Now playing"><span></span><span></span><span></span></div>
+				{:else}
+					<button class="icon-button" aria-label={`Play ${track[1]}`} on:click={() => play(index)}>▶</button>
+				{/if}
 				<div class="playlist-track-art">
 					<ImageWithFallback src={coverUrl(track[5] ?? playlistCoverArtId)} alt={track[1]} />
 				</div>

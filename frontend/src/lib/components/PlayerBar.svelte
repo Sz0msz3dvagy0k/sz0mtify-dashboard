@@ -57,6 +57,18 @@
 		audio.currentTime = (value / 100) * $player.duration;
 	}
 
+	function handleGlobalKeydown(event: KeyboardEvent) {
+		if (event.code !== 'Space' || event.repeat || !currentTrack || isEditingTarget(event.target)) return;
+		event.preventDefault();
+		togglePlay();
+	}
+
+	function isEditingTarget(target: EventTarget | null) {
+		if (!(target instanceof HTMLElement)) return false;
+		if (target.isContentEditable) return true;
+		return Boolean(target.closest('input, textarea, select, button, a, [role="button"], [role="slider"]'));
+	}
+
 	async function playAudio(trackId: number) {
 		try {
 			await audio.play();
@@ -79,6 +91,8 @@
 		if (audio) audio.volume = $player.volume;
 	});
 </script>
+
+<svelte:window on:keydown={handleGlobalKeydown} />
 
 <audio
 	bind:this={audio}

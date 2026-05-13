@@ -9,7 +9,7 @@
 	import ImageWithFallback from '$lib/components/ImageWithFallback.svelte';
 	import StatCard from '$lib/components/StatCard.svelte';
 	import { coverUrl, formatNumber } from '$lib/format';
-	import { playQueue, type QueueTrack } from '$lib/player';
+	import { player, playQueue, type QueueTrack } from '$lib/player';
 
 	let detail: AlbumDetail | null = null;
 	let artists: ArtistTuple[] = [];
@@ -41,6 +41,7 @@
 	$: if (browser && Number.isFinite(albumId) && albumId > 0 && albumId !== loadedAlbumId) void load(albumId);
 	$: artistName = detail?.artist_name ?? artists.find((artist) => artist[0] === album?.[2])?.[1] ?? 'Unknown artist';
 	$: albumTracks = detail?.tracks ?? [];
+	$: playingTrackId = $player.isPlaying ? $player.queue[$player.currentIndex]?.id ?? null : null;
 	$: trackParam = Number($page.url.searchParams.get('track'));
 	$: if (!loading && Number.isFinite(trackParam) && trackParam > 0 && trackParam !== lastHighlightedTrackParam) {
 		lastHighlightedTrackParam = trackParam;
@@ -99,8 +100,14 @@
 			</thead>
 			<tbody>
 				{#each albumTracks as track, index}
-					<tr class:highlight-row={track[0] === highlightedTrackId}>
-						<td><button class="icon-button" aria-label={`Play ${track[1]}`} on:click={() => play(index)}>▶</button></td>
+					<tr class:highlight-row={track[0] === highlightedTrackId} class:playing-row={track[0] === playingTrackId}>
+						<td>
+							{#if track[0] === playingTrackId}
+								<div class="playing-indicator" aria-label="Now playing"><span></span><span></span><span></span></div>
+							{:else}
+								<button class="icon-button" aria-label={`Play ${track[1]}`} on:click={() => play(index)}>▶</button>
+							{/if}
+						</td>
 						<td>{track[2] ?? '—'}</td>
 						<td>{track[1]}</td>
 						<td>{track[3] ?? 1}</td>
