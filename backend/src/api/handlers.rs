@@ -1,11 +1,14 @@
 use std::sync::Arc;
 
 use axum::{
-    body::Bytes,
+    body::{Body, Bytes},
     extract::{Path, Query, State},
     http::{
-        header::{CACHE_CONTROL, CONTENT_TYPE, ETAG},
-        HeaderMap, HeaderValue, StatusCode,
+        header::{
+            ACCEPT_RANGES, CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE,
+            CONTENT_TYPE, ETAG, IF_MODIFIED_SINCE, IF_NONE_MATCH, IF_RANGE, LAST_MODIFIED, RANGE,
+        },
+        HeaderMap, HeaderName, HeaderValue, StatusCode,
     },
     response::{IntoResponse, Response},
     Json,
@@ -363,6 +366,36 @@ pub async fn search(
     )
 }
 
+pub async fn stream_track(
+    State(state): State<Arc<AppState>>,
+    Path(track_id): Path<i64>,
+    headers: HeaderMap,
+) -> Response {
+    if track_id <= 0 {
+        return (StatusCode::BAD_REQUEST, err("invalid_track_id")).into_response();
+    }
+
+    match fetch_track_stream(&state.pool, track_id, &headers).await {
+        Ok(response) => response,
+        Err(TrackStreamError::NotFound) => {
+            (StatusCode::NOT_FOUND, err("track_not_found")).into_response()
+        }
+        Err(TrackStreamError::NotStreamable) => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            err("track_not_streamable"),
+        )
+            .into_response(),
+        Err(TrackStreamError::UpstreamNotFound) => {
+            (StatusCode::NOT_FOUND, err("track_stream_not_found")).into_response()
+        }
+        Err(TrackStreamError::UpstreamRangeNotSatisfiable(response)) => response,
+        Err(TrackStreamError::Upstream(error)) => {
+            warn!(track_id, error = %error, "failed to stream track from Subsonic");
+            (StatusCode::BAD_GATEWAY, err("failed_to_stream_track")).into_response()
+        }
+    }
+}
+
 pub async fn cover(
     State(state): State<Arc<AppState>>,
     Path(cover_art_id): Path<String>,
@@ -456,6 +489,225 @@ fn is_valid_cover_art_id(cover_art_id: &str) -> bool {
         && cover_art_id
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+}
+
+enum TrackStreamError {
+    NotFound,
+    NotStreamable,
+    UpstreamNotFound,
+    UpstreamRangeNotSatisfiable(Response),
+    Upstream(anyhow::Error),
+}
+
+impl std::fmt::Debug for TrackStreamError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotFound => formatter.write_str("NotFound"),
+            Self::NotStreamable => formatter.write_str("NotStreamable"),
+            Self::UpstreamNotFound => formatter.write_str("UpstreamNotFound"),
+            Self::UpstreamRangeNotSatisfiable(_) => {
+                formatter.write_str("UpstreamRangeNotSatisfiable")
+            }
+            Self::Upstream(error) => formatter.debug_tuple("Upstream").field(error).finish(),
+        }
+    }
+}
+
+impl From<anyhow::Error> for TrackStreamError {
+    fn from(error: anyhow::Error) -> Self {
+        Self::Upstream(error)
+    }
+}
+
+struct TrackStreamMetadata {
+    subsonic_id: String,
+    title: String,
+    content_type: Option<String>,
+    suffix: Option<String>,
+}
+
+async fn fetch_track_stream(
+    pool: &sqlx::SqlitePool,
+    track_id: i64,
+    request_headers: &HeaderMap,
+) -> Result<Response, TrackStreamError> {
+    let track = sqlx::query_as::<_, (Option<String>, String, Option<String>, Option<String>)>(
+        "SELECT subsonic_id, title, content_type, suffix FROM tracks WHERE id = ? LIMIT 1",
+    )
+    .bind(track_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|error| TrackStreamError::Upstream(error.into()))?;
+
+    let Some((subsonic_id, title, content_type, suffix)) = track else {
+        return Err(TrackStreamError::NotFound);
+    };
+    let Some(subsonic_id) = subsonic_id.and_then(|id| non_empty_owned(&id)) else {
+        return Err(TrackStreamError::NotStreamable);
+    };
+
+    let metadata = TrackStreamMetadata {
+        subsonic_id,
+        title,
+        content_type,
+        suffix,
+    };
+    fetch_subsonic_track_stream(pool, &metadata, request_headers).await
+}
+
+async fn fetch_subsonic_track_stream(
+    pool: &sqlx::SqlitePool,
+    metadata: &TrackStreamMetadata,
+    request_headers: &HeaderMap,
+) -> Result<Response, TrackStreamError> {
+    let cfg = SubsonicConfig::load(pool).await?;
+    let url = format!("{}/rest/stream", cfg.base_url.trim_end_matches('/'));
+    let mut query = crate::services::sync::subsonic_auth_query(&cfg);
+    query.push(("id".to_string(), metadata.subsonic_id.clone()));
+
+    let mut request = reqwest::Client::new().get(url).query(&query);
+    for header in [RANGE, IF_RANGE, IF_NONE_MATCH, IF_MODIFIED_SINCE] {
+        if let Some(value) = request_headers.get(&header).and_then(header_value_to_str) {
+            request = request.header(header.as_str(), value);
+        }
+    }
+
+    let response = request
+        .send()
+        .await
+        .map_err(|error| TrackStreamError::Upstream(error.into()))?;
+    let status = response.status();
+
+    if status == reqwest::StatusCode::NOT_FOUND {
+        return Err(TrackStreamError::UpstreamNotFound);
+    }
+
+    let downstream_status =
+        StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+    if status == reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
+        return Err(TrackStreamError::UpstreamRangeNotSatisfiable(
+            streaming_response(downstream_status, response, metadata),
+        ));
+    }
+    if !status.is_success() && status != reqwest::StatusCode::NOT_MODIFIED {
+        return Err(TrackStreamError::Upstream(anyhow::anyhow!(
+            "Subsonic stream returned HTTP {status}"
+        )));
+    }
+
+    Ok(streaming_response(downstream_status, response, metadata))
+}
+
+fn streaming_response(
+    status: StatusCode,
+    upstream: reqwest::Response,
+    metadata: &TrackStreamMetadata,
+) -> Response {
+    let mut headers = HeaderMap::new();
+    copy_upstream_header(&mut headers, upstream.headers(), CONTENT_TYPE);
+    copy_upstream_header(&mut headers, upstream.headers(), CONTENT_LENGTH);
+    copy_upstream_header(&mut headers, upstream.headers(), CONTENT_RANGE);
+    copy_upstream_header(&mut headers, upstream.headers(), ACCEPT_RANGES);
+    copy_upstream_header(&mut headers, upstream.headers(), ETAG);
+    copy_upstream_header(&mut headers, upstream.headers(), LAST_MODIFIED);
+
+    if !headers.contains_key(CONTENT_TYPE) {
+        headers.insert(
+            CONTENT_TYPE,
+            HeaderValue::from_str(&track_content_type(metadata))
+                .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
+        );
+    }
+    if !headers.contains_key(ACCEPT_RANGES) {
+        headers.insert(ACCEPT_RANGES, HeaderValue::from_static("bytes"));
+    }
+    headers.insert(
+        CACHE_CONTROL,
+        HeaderValue::from_static("private, max-age=86400"),
+    );
+    if let Ok(disposition) = HeaderValue::from_str(&format!(
+        "inline; filename=\"{}\"",
+        quoted_filename(&metadata.title, metadata.suffix.as_deref())
+    )) {
+        headers.insert(CONTENT_DISPOSITION, disposition);
+    }
+
+    (status, headers, Body::from_stream(upstream.bytes_stream())).into_response()
+}
+
+fn copy_upstream_header(
+    headers: &mut HeaderMap,
+    upstream: &reqwest::header::HeaderMap,
+    name: HeaderName,
+) {
+    if let Some(value) = upstream
+        .get(name.as_str())
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| HeaderValue::from_str(value).ok())
+    {
+        headers.insert(name, value);
+    }
+}
+
+fn header_value_to_str(value: &HeaderValue) -> Option<&str> {
+    value.to_str().ok().filter(|value| !value.trim().is_empty())
+}
+
+fn non_empty_owned(value: &str) -> Option<String> {
+    let value = value.trim();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_string())
+    }
+}
+
+fn track_content_type(metadata: &TrackStreamMetadata) -> String {
+    metadata
+        .content_type
+        .as_deref()
+        .and_then(non_empty_owned)
+        .unwrap_or_else(|| content_type_for_suffix(metadata.suffix.as_deref()))
+}
+
+fn content_type_for_suffix(suffix: Option<&str>) -> String {
+    match suffix
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "flac" => "audio/flac",
+        "m4a" | "mp4" | "aac" => "audio/mp4",
+        "mp3" => "audio/mpeg",
+        "ogg" | "oga" => "audio/ogg",
+        "opus" => "audio/opus",
+        "wav" => "audio/wav",
+        "webm" => "audio/webm",
+        _ => "application/octet-stream",
+    }
+    .to_string()
+}
+
+fn quoted_filename(title: &str, suffix: Option<&str>) -> String {
+    let mut filename = title
+        .chars()
+        .map(|character| match character {
+            '"' | '\\' | '/' | '\0'..='\u{1f}' => '_',
+            character => character,
+        })
+        .collect::<String>();
+    if filename.trim().is_empty() {
+        filename = "track".to_string();
+    }
+    if let Some(suffix) = suffix.and_then(non_empty_owned) {
+        let suffix = suffix.trim_start_matches('.');
+        if !suffix.is_empty() {
+            filename.push('.');
+            filename.push_str(suffix);
+        }
+    }
+    filename
 }
 
 async fn fetch_cover_art(
@@ -688,5 +940,96 @@ mod tests {
 
         assert_eq!(content_type, "image/jpeg");
         assert_eq!(&bytes[..], b"\xff\xd8\xff");
+    }
+
+    #[tokio::test]
+    async fn track_stream_proxies_range_request_without_buffering_to_disk() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buffer = [0_u8; 4096];
+            let read = socket.read(&mut buffer).await.unwrap();
+            let request = String::from_utf8_lossy(&buffer[..read]);
+            assert!(request.starts_with("GET /rest/stream?"));
+            assert!(request.contains("id=subsonic-track"));
+            assert!(
+                request.contains("\r\nrange: bytes=2-5\r\n")
+                    || request.contains("\r\nRange: bytes=2-5\r\n")
+            );
+
+            let body = b"cdef";
+            let response = format!(
+                "HTTP/1.1 206 Partial Content\r\nContent-Type: audio/flac\r\nContent-Length: {}\r\nContent-Range: bytes 2-5/10\r\nAccept-Ranges: bytes\r\nETag: \"song\"\r\n\r\n",
+                body.len()
+            );
+            socket.write_all(response.as_bytes()).await.unwrap();
+            socket.write_all(body).await.unwrap();
+        });
+
+        let pool = test_pool().await;
+        sqlx::query(
+            "INSERT INTO settings(key,value) VALUES
+             ('subsonic_base_url', ?),
+             ('subsonic_username', 'user'),
+             ('subsonic_password', 'pass')",
+        )
+        .bind(format!("http://{addr}"))
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO tracks(id,subsonic_id,title,content_type,suffix)
+             VALUES(1,'subsonic-track','Song','audio/flac','flac')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let mut request_headers = HeaderMap::new();
+        request_headers.insert(RANGE, HeaderValue::from_static("bytes=2-5"));
+
+        let response = fetch_track_stream(&pool, 1, &request_headers)
+            .await
+            .unwrap();
+        server.await.unwrap();
+        let status = response.status();
+        let headers = response.headers().clone();
+        let body = axum::body::to_bytes(response.into_body(), 1024)
+            .await
+            .unwrap();
+
+        assert_eq!(status, StatusCode::PARTIAL_CONTENT);
+        assert_eq!(
+            headers
+                .get(CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok()),
+            Some("audio/flac")
+        );
+        assert_eq!(
+            headers
+                .get(CONTENT_RANGE)
+                .and_then(|value| value.to_str().ok()),
+            Some("bytes 2-5/10")
+        );
+        assert_eq!(
+            headers
+                .get(CACHE_CONTROL)
+                .and_then(|value| value.to_str().ok()),
+            Some("private, max-age=86400")
+        );
+        assert_eq!(&body[..], b"cdef");
+    }
+
+    #[tokio::test]
+    async fn track_stream_rejects_tracks_without_subsonic_id() {
+        let pool = test_pool().await;
+        sqlx::query("INSERT INTO tracks(id,title) VALUES(1,'Local Only')")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let result = fetch_track_stream(&pool, 1, &HeaderMap::new()).await;
+
+        assert!(matches!(result, Err(TrackStreamError::NotStreamable)));
     }
 }

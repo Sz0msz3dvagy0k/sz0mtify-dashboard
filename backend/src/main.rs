@@ -164,6 +164,10 @@ async fn run() -> anyhow::Result<()> {
         )
         .route("/api/search", get(api::handlers::search))
         .route(
+            "/api/tracks/:track_id/stream",
+            get(api::handlers::stream_track),
+        )
+        .route(
             "/api/artist-image/:artist_id",
             get(api::handlers::artist_image),
         )
