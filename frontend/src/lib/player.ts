@@ -1,5 +1,6 @@
 import { writable } from 'svelte/store';
-import { withAccessToken } from '$lib/auth';
+import { withStreamToken } from '$lib/auth';
+import { api } from '$lib/api';
 import { apiBase, coverUrl } from '$lib/format';
 
 export type QueueTrack = {
@@ -98,8 +99,9 @@ export function toggleQueue() {
 	player.update((state) => ({ ...state, queueOpen: !state.queueOpen }));
 }
 
-export function streamUrl(trackId: number) {
-	return withAccessToken(`${apiBase()}/api/tracks/${trackId}/stream`);
+export async function streamUrl(trackId: number) {
+	const token = await api.streamToken();
+	return withStreamToken(`${apiBase()}/api/tracks/${trackId}/stream`, token.token);
 }
 
 export function queueTrackImage(track: QueueTrack | null | undefined) {

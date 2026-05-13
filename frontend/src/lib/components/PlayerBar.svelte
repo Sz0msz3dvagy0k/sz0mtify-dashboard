@@ -29,14 +29,13 @@
 	let audio: HTMLAudioElement;
 	let lastTrackId: number | null = null;
 	let registeredTrackId: number | null = null;
+	let streamRequestId = 0;
 	$: currentTrack = $player.queue[$player.currentIndex] ?? null;
 	$: progress = $player.duration > 0 ? ($player.currentTime / $player.duration) * 100 : 0;
 
 	$: if (audio && currentTrack && currentTrack.id !== lastTrackId) {
 		lastTrackId = currentTrack.id;
-		audio.src = streamUrl(currentTrack.id);
-		audio.load();
-		if ($player.isPlaying) void playAudio(currentTrack.id);
+		void loadTrackStream(currentTrack.id, ++streamRequestId);
 	}
 
 	$: if (audio && Math.abs(audio.volume - $player.volume) > 0.01) {
@@ -67,6 +66,18 @@
 		if (!(target instanceof HTMLElement)) return false;
 		if (target.isContentEditable) return true;
 		return Boolean(target.closest('input, textarea, select, button, a, [role="button"], [role="slider"]'));
+	}
+
+	async function loadTrackStream(trackId: number, requestId: number) {
+		try {
+			const src = await streamUrl(trackId);
+			if (requestId !== streamRequestId || currentTrack?.id !== trackId) return;
+			audio.src = src;
+			audio.load();
+			if ($player.isPlaying) void playAudio(trackId);
+		} catch {
+			if (requestId === streamRequestId) setPlaying(false);
+		}
 	}
 
 	async function playAudio(trackId: number) {

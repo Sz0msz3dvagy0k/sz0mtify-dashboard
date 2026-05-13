@@ -79,6 +79,13 @@ pub async fn me(Extension(user): Extension<AuthUser>) -> Json<Value> {
     ok(json!({"username": user.username}))
 }
 
+pub async fn stream_token(
+    State(state): State<Arc<AppState>>,
+    Extension(user): Extension<AuthUser>,
+) -> Json<Value> {
+    ok(json!(state.auth.issue_stream_token(&user.username).await))
+}
+
 pub async fn get_settings(State(state): State<Arc<AppState>>) -> Json<Value> {
     match state.settings.get_all(&state.pool).await {
         Ok(settings) => ok(json!(settings)),

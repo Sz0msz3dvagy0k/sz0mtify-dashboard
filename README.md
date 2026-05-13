@@ -35,6 +35,25 @@ npm run lint
 npm run format
 ```
 
+## iOS local bundle
+The frontend is built as a static SvelteKit SPA and wrapped by Capacitor for iOS.
+
+1. Set the API URL in `.env` before building:
+   ```bash
+   FRONTEND_API_BASE_URL=https://kaori.szomszed.me
+   FRONTEND_ALLOWED_ORIGINS=https://kaori.szomszed.me,capacitor://localhost
+   ```
+2. Build and sync the native project:
+   ```bash
+   cd frontend
+   npm run build:mobile
+   npm run cap:open:ios
+   ```
+
+`frontend/static/config.js` is copied into the bundle and can override the API URL at runtime with `window.__ARCHIVE_CONFIG__.apiBaseUrl`. The Docker frontend image rewrites that file from `FRONTEND_API_BASE_URL` when the container starts.
+
+The audio player uses short-lived stream tokens from `POST /api/auth/stream-token` because native media elements cannot attach custom `Authorization` headers to stream URLs.
+
 ## Backend behavior
 
 The backend syncs library metadata from a Subsonic/Navidrome server and enriches artists through Last.fm. Configure:
@@ -44,6 +63,8 @@ The backend syncs library metadata from a Subsonic/Navidrome server and enriches
 - `SUBSONIC_PASSWORD`
 - `SUBSONIC_API_VERSION` optional, defaults to `1.16.1`
 - `LASTFM_API_KEY`
+
+The app has a single-user login. Configure either `APP_PASSWORD` for a plain password or `APP_PASSWORD_SHA256` for a SHA-256 password hash. `APP_SESSION_TTL_HOURS` controls normal login sessions, and `APP_STREAM_TOKEN_TTL_SECONDS` controls short-lived audio stream URL tokens.
 
 ### Storage stats
 

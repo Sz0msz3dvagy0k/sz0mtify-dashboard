@@ -44,9 +44,8 @@ export function getAuthToken(): string | null {
 	return currentSession?.token ?? loadStoredSession()?.token ?? null;
 }
 
-export function withAccessToken(url: string): string {
-	const token = getAuthToken();
+export function withStreamToken(url: string, token: string): string {
 	if (!token) return url;
 	const separator = url.includes('?') ? '&' : '?';
-	return `${url}${separator}access_token=${encodeURIComponent(token)}`;
+	return `${url}${separator}stream_token=${encodeURIComponent(token)}`;
 }

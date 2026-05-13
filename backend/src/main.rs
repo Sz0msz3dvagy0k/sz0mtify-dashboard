@@ -118,6 +118,7 @@ async fn run() -> anyhow::Result<()> {
         .route("/api/auth/login", post(api::handlers::login))
         .route("/api/auth/logout", post(api::handlers::logout))
         .route("/api/auth/me", get(api::handlers::me))
+        .route("/api/auth/stream-token", post(api::handlers::stream_token))
         .route(
             "/api/settings",
             get(api::handlers::get_settings).post(api::handlers::save_settings),

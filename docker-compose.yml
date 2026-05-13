@@ -5,7 +5,7 @@ services:
       dockerfile: backend/Dockerfile
     hostname: dash-backend
     ports:
-      - "[::1]:8080:8080"
+      - "127.0.0.1:${BACKEND_PUBLISHED_PORT:-8080}:8080"
     env_file: .env
     volumes:
       - data:/data
@@ -14,9 +14,10 @@ services:
       context: .
       dockerfile: frontend/Dockerfile
     hostname: dash-frontend
-    env_file: .env
+    environment:
+      FRONTEND_API_BASE_URL: ${FRONTEND_API_BASE_URL}
     ports: 
-      - "[::1]:5173:3000"
+      - "127.0.0.1:${FRONTEND_PUBLISHED_PORT:-5173}:3000"
     depends_on: 
       - backend
 volumes:
