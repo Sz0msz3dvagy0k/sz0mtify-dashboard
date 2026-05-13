@@ -244,10 +244,25 @@ fn frontend_allowed_origins() -> Vec<HeaderValue> {
         .unwrap_or_default()
         .split(',')
         .chain(defaults)
-        .map(str::trim)
-        .filter(|origin| !origin.is_empty())
+        .filter_map(normalize_cors_origin)
         .filter_map(|origin| origin.parse().ok())
         .collect()
+}
+
+fn normalize_cors_origin(value: &str) -> Option<String> {
+    let origin = value.trim().trim_end_matches('/');
+    if origin.is_empty() {
+        return None;
+    }
+
+    let scheme_end = origin.find("://")?;
+    let authority_start = scheme_end + 3;
+    let authority_end = origin[authority_start..]
+        .find('/')
+        .map(|index| authority_start + index)
+        .unwrap_or(origin.len());
+
+    Some(origin[..authority_end].to_string())
 }
 
 #[cfg(test)]
@@ -270,5 +285,21 @@ mod tests {
         assert!(db_path.exists());
 
         let _ = std::fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn cors_origin_normalization_removes_paths_and_trailing_slashes() {
+        assert_eq!(
+            normalize_cors_origin("https://kaori.szomszed.me/").as_deref(),
+            Some("https://kaori.szomszed.me")
+        );
+        assert_eq!(
+            normalize_cors_origin(" https://kaori.szomszed.me/login "),
+            Some("https://kaori.szomszed.me".to_string())
+        );
+        assert_eq!(
+            normalize_cors_origin("capacitor://localhost/").as_deref(),
+            Some("capacitor://localhost")
+        );
     }
 }
