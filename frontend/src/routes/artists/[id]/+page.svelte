@@ -7,6 +7,7 @@
 	import EmptyState from '$lib/components/EmptyState.svelte';
 	import ErrorState from '$lib/components/ErrorState.svelte';
 	import ImageWithFallback from '$lib/components/ImageWithFallback.svelte';
+	import ItemsPerPage from '$lib/components/ItemsPerPage.svelte';
 	import StatCard from '$lib/components/StatCard.svelte';
 	import { coverUrl, formatArtistBio, formatBytes, formatNumber } from '$lib/format';
 
@@ -15,6 +16,7 @@
 	let resolvedArtistCoverArtId: string | null = null;
 	let error = '';
 	let loading = true;
+	let itemsPerPage = 18;
 
 	async function load() {
 		loading = true;
@@ -41,6 +43,7 @@
 	$: artistImageUrl = artist?.[6] ?? null;
 	$: fallbackHeroImageSrc = coverUrl(representativeCoverArtId);
 	$: artistBio = formatArtistBio(artist?.[5]);
+	$: visibleAlbums = detail?.albums.slice(0, itemsPerPage) ?? [];
 </script>
 
 {#if loading}
@@ -66,8 +69,9 @@
 		</div>
 	</section>
 	<div class="media-grid">
-		{#each detail.albums as album}
+		{#each visibleAlbums as album}
 			<AlbumCard id={album[0]} title={album[1]} artist={artist[1]} year={album[2]} coverArtId={album[3]} />
 		{/each}
 	</div>
+	<ItemsPerPage bind:value={itemsPerPage} total={detail.albums.length} shown={visibleAlbums.length} />
 {/if}

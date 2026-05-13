@@ -7,6 +7,7 @@
 	import DataTable from '$lib/components/DataTable.svelte';
 	import ErrorState from '$lib/components/ErrorState.svelte';
 	import FilterBar from '$lib/components/FilterBar.svelte';
+	import ItemsPerPage from '$lib/components/ItemsPerPage.svelte';
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
 	import SkeletonCard from '$lib/components/SkeletonCard.svelte';
 	import StatCard from '$lib/components/StatCard.svelte';
@@ -19,6 +20,7 @@
 	let loading = true;
 	let error = '';
 	let filter = '';
+	let itemsPerPage = 18;
 
 	async function load() {
 		loading = true;
@@ -40,6 +42,7 @@
 	$: storageArtistRows = storage?.size_by_artist.slice(0, 10) ?? [];
 	$: storageArtistTableRows = storageArtistRows.map((row) => [row[1], formatBytes(row[2]), row[3]]);
 	$: storageArtistTableLinks = storageArtistRows.map((row) => [row[0] ? `/artists/${row[0]}` : null, null, null]);
+	$: visibleArtists = filtered.slice(0, itemsPerPage);
 
 	onMount(load);
 </script>
@@ -70,8 +73,9 @@
 	<div class="toolbar"><FilterBar bind:value={filter} placeholder="Filter artists" /></div>
 	<SectionHeader title="Artist Grid" eyebrow={`${filtered.length} matches`} />
 	<div class="media-grid artist-grid">
-		{#each filtered as artist}
+		{#each visibleArtists as artist}
 			<ArtistCard id={artist[0]} name={artist[1]} albums={artist[2] ?? 0} tracks={artist[3] ?? 0} plays={artist[4] ?? 0} artistImageUrl={artist[5]} coverArtId={artist[6]} coverAlbumId={representativeAlbumByArtist.get(artist[0]) ?? null} />
 		{/each}
 	</div>
+	<ItemsPerPage bind:value={itemsPerPage} total={filtered.length} shown={visibleArtists.length} />
 {/if}

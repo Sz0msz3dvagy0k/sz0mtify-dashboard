@@ -58,7 +58,7 @@ export type ListeningStats = {
 	has_play_events: boolean;
 	has_imported_play_counts: boolean;
 	total_plays: number;
-	top_tracks: [number, string, number][];
+	top_tracks: [number, string, number | null, number][];
 	top_artists: [number | null, string | null, number][];
 	top_albums: [number | null, string | null, number][];
 	recently_played: unknown[];
@@ -105,7 +105,7 @@ export type DiscoveryRefresh = {
 };
 
 export type SearchResult = {
-	tracks: [number, string][];
+	tracks: [number, string, number | null][];
 	albums: [number, string][];
 	artists: [number, string][];
 };

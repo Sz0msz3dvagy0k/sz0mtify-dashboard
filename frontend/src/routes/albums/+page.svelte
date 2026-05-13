@@ -8,6 +8,7 @@
 	import EmptyState from '$lib/components/EmptyState.svelte';
 	import ErrorState from '$lib/components/ErrorState.svelte';
 	import FilterBar from '$lib/components/FilterBar.svelte';
+	import ItemsPerPage from '$lib/components/ItemsPerPage.svelte';
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
 	import SkeletonCard from '$lib/components/SkeletonCard.svelte';
 	import StatCard from '$lib/components/StatCard.svelte';
@@ -15,11 +16,12 @@
 
 	let albums: AlbumTuple[] = [];
 	let artists: ArtistTuple[] = [];
-	let storage: StorageStats;
+	let storage: StorageStats | null = null;
 	let loading = true;
 	let error = '';
 	let filter = '';
 	let sort = 'title';
+	let itemsPerPage = 18;
 
 	async function load() {
 		loading = true;
@@ -38,6 +40,9 @@
 		.filter((album) => `${album[1]} ${artistMap.get(album[2] ?? -1) ?? ''} ${album[4] ?? ''}`.toLowerCase().includes(filter.toLowerCase()))
 		.sort((a, b) => sort === 'year' ? (b[3] ?? 0) - (a[3] ?? 0) : a[1].localeCompare(b[1]));
 	$: largest = storage?.largest_albums.slice(0, 12) ?? [];
+	$: visibleAlbums = filtered.slice(0, itemsPerPage);
+	$: largestTableRows = largest.slice(0, 8).map((a) => [a[1], artistMap.get(a[2] ?? -1) ?? 'Unknown', formatBytes(a[3]), a[4]]);
+	$: largestTableLinks = largest.slice(0, 8).map((a) => [a[0] ? `/albums/${a[0]}` : null, null, null, null]);
 
 	onMount(load);
 </script>
@@ -70,16 +75,17 @@
 				series: [{ type: 'bar', data: largest.slice(0, 8).map((a) => a[3]).reverse(), color: '#e5e5e5' }]
 			}}
 		/>
-		<DataTable columns={['Album', 'Artist', 'Size', 'Tracks']} rows={largest.slice(0, 8).map((a) => [a[1], artistMap.get(a[2] ?? -1) ?? 'Unknown', formatBytes(a[3]), a[4]])} />
+		<DataTable columns={['Album', 'Artist', 'Size', 'Tracks']} rows={largestTableRows} cellLinks={largestTableLinks} />
 	</section>
 
 	<SectionHeader title="Album Grid" eyebrow={`${filtered.length} matches`} />
 	{#if filtered.length}
 		<div class="media-grid">
-			{#each filtered as album}
+			{#each visibleAlbums as album}
 				<AlbumCard id={album[0]} title={album[1]} artist={artistMap.get(album[2] ?? -1) ?? 'Unknown artist'} year={album[3]} genre={album[4]} coverArtId={album[5]} />
 			{/each}
 		</div>
+		<ItemsPerPage bind:value={itemsPerPage} total={filtered.length} shown={visibleAlbums.length} />
 	{:else}
 		<EmptyState title="No albums match" />
 	{/if}

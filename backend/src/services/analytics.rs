@@ -339,11 +339,11 @@ impl AnalyticsService {
         let has_imported_play_counts = imported_plays > 0;
 
         if has_play_events {
-            let top_tracks = sqlx::query_as::<_, (i64, String, i64)>(
-                "SELECT t.id, t.title, COUNT(pl.id) AS plays
+            let top_tracks = sqlx::query_as::<_, (i64, String, Option<i64>, i64)>(
+                "SELECT t.id, t.title, t.album_id, COUNT(pl.id) AS plays
                  FROM plays pl
                  JOIN tracks t ON t.id = pl.track_id
-                 GROUP BY t.id, t.title
+                 GROUP BY t.id, t.title, t.album_id
                  HAVING plays > 0
                  ORDER BY plays DESC, t.title ASC
                  LIMIT 50",
@@ -419,8 +419,8 @@ impl AnalyticsService {
         }
 
         if has_imported_play_counts {
-            let top_tracks = sqlx::query_as::<_, (i64, String, i64)>(
-                "SELECT id, title, COALESCE(play_count,0) AS plays
+            let top_tracks = sqlx::query_as::<_, (i64, String, Option<i64>, i64)>(
+                "SELECT id, title, album_id, COALESCE(play_count,0) AS plays
                  FROM tracks
                  WHERE COALESCE(play_count,0) > 0
                  ORDER BY plays DESC, title ASC
@@ -499,8 +499,8 @@ impl AnalyticsService {
 
     pub async fn search(&self, p: &sqlx::SqlitePool, q: &str) -> anyhow::Result<serde_json::Value> {
         let t = format!("%{}%", q);
-        let tracks = sqlx::query_as::<_, (i64, String)>(
-            "SELECT id,title FROM tracks WHERE title LIKE ? LIMIT 30",
+        let tracks = sqlx::query_as::<_, (i64, String, Option<i64>)>(
+            "SELECT id,title,album_id FROM tracks WHERE title LIKE ? LIMIT 30",
         )
         .bind(&t)
         .fetch_all(p)

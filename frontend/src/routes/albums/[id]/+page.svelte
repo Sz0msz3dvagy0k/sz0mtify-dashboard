@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/stores';
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import { api } from '$lib/api';
 	import type { AlbumDetail, ArtistTuple } from '$lib/types';
 	import DataTable from '$lib/components/DataTable.svelte';
@@ -14,6 +14,9 @@
 	let artists: ArtistTuple[] = [];
 	let error = '';
 	let loading = true;
+	let highlightedTrackId: number | null = null;
+	let lastHighlightedTrackParam: number | null = null;
+	let highlightTimer: ReturnType<typeof setTimeout> | null = null;
 
 	async function load() {
 		loading = true;
@@ -26,8 +29,21 @@
 		}
 	}
 	onMount(load);
+	onDestroy(() => {
+		if (highlightTimer) clearTimeout(highlightTimer);
+	});
 	$: album = detail?.album;
 	$: artistName = artists.find((artist) => artist[0] === album?.[2])?.[1] ?? 'Unknown artist';
+	$: trackParam = Number($page.url.searchParams.get('track'));
+	$: if (!loading && Number.isFinite(trackParam) && trackParam > 0 && trackParam !== lastHighlightedTrackParam) {
+		lastHighlightedTrackParam = trackParam;
+		highlightedTrackId = trackParam;
+		if (highlightTimer) clearTimeout(highlightTimer);
+		highlightTimer = setTimeout(() => {
+			highlightedTrackId = null;
+			highlightTimer = null;
+		}, 1200);
+	}
 </script>
 
 {#if loading}
@@ -51,5 +67,10 @@
 			</div>
 		</div>
 	</section>
-	<DataTable columns={['#', 'Track', 'Disc']} rows={detail.tracks.map((track) => [track[2] ?? '—', track[1], track[3] ?? 1])} />
+	<DataTable
+		columns={['#', 'Track', 'Disc']}
+		rows={detail.tracks.map((track) => [track[2] ?? '—', track[1], track[3] ?? 1])}
+		rowKeys={detail.tracks.map((track) => track[0])}
+		highlightedRowKey={highlightedTrackId}
+	/>
 {/if}

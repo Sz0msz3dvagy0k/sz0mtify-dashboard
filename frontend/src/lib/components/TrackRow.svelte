@@ -4,12 +4,23 @@
 	export let detail = '';
 	export let duration: number | null = null;
 	export let count: number | null = null;
+	export let href: string | null = null;
 </script>
 
-<div class="track-row">
-	<div>
-		<strong>{title}</strong>
-		{#if detail}<span>{detail}</span>{/if}
+{#if href}
+	<a class="track-row" {href}>
+		<div>
+			<strong>{title}</strong>
+			{#if detail}<span>{detail}</span>{/if}
+		</div>
+		<em>{count !== null ? formatNumber(count) : formatDuration(duration)}</em>
+	</a>
+{:else}
+	<div class="track-row">
+		<div>
+			<strong>{title}</strong>
+			{#if detail}<span>{detail}</span>{/if}
+		</div>
+		<em>{count !== null ? formatNumber(count) : formatDuration(duration)}</em>
 	</div>
-	<em>{count !== null ? formatNumber(count) : formatDuration(duration)}</em>
-</div>
+{/if}

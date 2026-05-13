@@ -66,7 +66,7 @@ export const api = {
 	similarArtists: (params = 'limit=50') => request<DiscoveryList>(`/api/discovery/similar-artists?${params}`),
 	refreshDiscovery: (limit = 10) =>
 		request<DiscoveryRefresh>(`/api/discovery/refresh?limit=${limit}`, { method: 'POST' }),
-	rediscovery: () => request<{ tracks: [number, string, string | null, number, string | null][]; score_example: number }>('/api/recommendations/rediscovery'),
-	currentRotation: () => request<[number, string, string | null, number | null][]>('/api/recommendations/current-rotation'),
+	rediscovery: () => request<{ tracks: [number, string, string | null, number | null, number, string | null][]; score_example: number }>('/api/recommendations/rediscovery'),
+	currentRotation: () => request<[number, string, string | null, number | null, number | null][]>('/api/recommendations/current-rotation'),
 	search: (q: string) => request<SearchResult>(`/api/search?q=${encodeURIComponent(q)}`)
 };

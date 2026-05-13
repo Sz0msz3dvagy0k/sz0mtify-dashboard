@@ -9,10 +9,11 @@
 	import StatCard from '$lib/components/StatCard.svelte';
 	import TrackRow from '$lib/components/TrackRow.svelte';
 	import { formatNumber } from '$lib/format';
+	import { albumTrackHref } from '$lib/navigation';
 
 	let listening: ListeningStats;
-	let rotation: [number, string, string | null, number | null][] = [];
-	let rediscovery: { tracks: [number, string, string | null, number, string | null][]; score_example: number };
+	let rotation: [number, string, string | null, number | null, number | null][] = [];
+	let rediscovery: { tracks: [number, string, string | null, number | null, number, string | null][]; score_example: number };
 	let loading = true;
 	let error = '';
 	async function load() {
@@ -62,15 +63,15 @@
 	<section class="split-grid">
 		<div>
 			<SectionHeader title="Top Tracks" eyebrow="play count" />
-			<div class="panel-list">{#each listening.top_tracks.slice(0, 12) as track}<TrackRow title={track[1]} count={track[2]} />{/each}</div>
+			<div class="panel-list">{#each listening.top_tracks.slice(0, 12) as track}<TrackRow title={track[1]} count={track[3]} href={albumTrackHref(track[0], track[2])} />{/each}</div>
 		</div>
 		<div>
 			<SectionHeader title="Current Rotation" eyebrow="recent weighting" />
-			<div class="panel-list">{#each rotation.slice(0, 12) as track}<TrackRow title={track[1]} detail={track[2] ?? ''} count={track[3] ?? 0} />{/each}</div>
+			<div class="panel-list">{#each rotation.slice(0, 12) as track}<TrackRow title={track[1]} detail={track[2] ?? ''} count={track[4] ?? 0} href={albumTrackHref(track[0], track[3])} />{/each}</div>
 		</div>
 	</section>
 	<section>
 		<SectionHeader title="Rediscovery Candidates" eyebrow="deep cuts" />
-		<div class="panel-list">{#each rediscovery.tracks.slice(0, 10) as track}<TrackRow title={track[1]} detail={track[4] ?? ''} count={track[3]} />{/each}</div>
+		<div class="panel-list">{#each rediscovery.tracks.slice(0, 10) as track}<TrackRow title={track[1]} detail={track[5] ?? ''} count={track[4]} href={albumTrackHref(track[0], track[3])} />{/each}</div>
 	</section>
 {/if}

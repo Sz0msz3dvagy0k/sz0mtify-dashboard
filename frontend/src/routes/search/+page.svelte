@@ -4,6 +4,7 @@
 	import EmptyState from '$lib/components/EmptyState.svelte';
 	import ErrorState from '$lib/components/ErrorState.svelte';
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
+	import { albumTrackHref } from '$lib/navigation';
 
 	let q = '';
 	let result: SearchResult | null = null;
@@ -36,7 +37,15 @@
 	<section class="split-grid">
 		<div>
 			<SectionHeader title="Tracks" eyebrow={`${result.tracks.length} results`} />
-			<div class="panel-list">{#each result.tracks as row}<a class="result-row" href={`/search?q=${encodeURIComponent(row[1])}`}>{row[1]}</a>{/each}</div>
+			<div class="panel-list">
+				{#each result.tracks as row}
+					{#if albumTrackHref(row[0], row[2])}
+						<a class="result-row" href={albumTrackHref(row[0], row[2])}>{row[1]}</a>
+					{:else}
+						<div class="result-row">{row[1]}</div>
+					{/if}
+				{/each}
+			</div>
 		</div>
 		<div>
 			<SectionHeader title="Albums" eyebrow={`${result.albums.length} results`} />

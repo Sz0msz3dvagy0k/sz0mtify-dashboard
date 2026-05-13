@@ -2,6 +2,8 @@
 	export let columns: string[] = [];
 	export let rows: (string | number | null | undefined)[][] = [];
 	export let cellLinks: (string | null | undefined)[][] = [];
+	export let rowKeys: (string | number | null | undefined)[] = [];
+	export let highlightedRowKey: string | number | null = null;
 </script>
 
 <div class="table-wrap">
@@ -11,7 +13,7 @@
 		</thead>
 		<tbody>
 			{#each rows as row, rowIndex}
-				<tr>
+				<tr class:highlight-row={rowKeys[rowIndex] !== undefined && rowKeys[rowIndex] === highlightedRowKey}>
 					{#each row as cell, index}
 						<td>
 							{#if cellLinks[rowIndex]?.[index]}

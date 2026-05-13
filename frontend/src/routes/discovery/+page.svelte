@@ -5,6 +5,7 @@
 	import DiscoveryCard from '$lib/components/DiscoveryCard.svelte';
 	import EmptyState from '$lib/components/EmptyState.svelte';
 	import ErrorState from '$lib/components/ErrorState.svelte';
+	import ItemsPerPage from '$lib/components/ItemsPerPage.svelte';
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
 	import StatCard from '$lib/components/StatCard.svelte';
 	import { formatNumber } from '$lib/format';
@@ -17,6 +18,7 @@
 	let refreshing = false;
 	let error = '';
 	let includeOwned = false;
+	let itemsPerPage = 18;
 
 	async function load() {
 		loading = true;
@@ -24,9 +26,9 @@
 		const owned = includeOwned ? '&include_owned=true' : '';
 		try {
 			[newReleases, missing, similar] = await Promise.all([
-				api.newReleases(`limit=24${owned}`),
-				api.missingAlbums(`limit=24${owned}`),
-				api.similarArtists(`limit=24${owned}`)
+				api.newReleases(`limit=72${owned}`),
+				api.missingAlbums(`limit=72${owned}`),
+				api.similarArtists(`limit=72${owned}`)
 			]);
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Unable to load discovery';
@@ -46,6 +48,11 @@
 	}
 
 	onMount(load);
+	$: shownDiscoveryItems =
+		Math.min(itemsPerPage, newReleases?.items.length ?? 0) +
+		Math.min(itemsPerPage, missing?.items.length ?? 0) +
+		Math.min(itemsPerPage, similar?.items.length ?? 0);
+	$: totalDiscoveryItems = (newReleases?.total ?? 0) + (missing?.total ?? 0) + (similar?.total ?? 0);
 </script>
 
 {#if loading}
@@ -64,10 +71,11 @@
 		{#if refreshResult}<span class="muted">Created {refreshResult.created_count}, updated {refreshResult.updated_count}</span>{/if}
 	</div>
 	<SectionHeader title="New From Your Artists" eyebrow="Last.fm" />
-	<div class="discovery-grid">{#each newReleases.items as item}<DiscoveryCard {item} />{/each}</div>
+	<div class="discovery-grid">{#each newReleases.items.slice(0, itemsPerPage) as item}<DiscoveryCard {item} />{/each}</div>
 	{#if !newReleases.items.length}<EmptyState title="No discovery rows yet" detail="Run refresh to generate candidates." />{/if}
 	<SectionHeader title="Missing Albums" eyebrow="not owned by default" />
-	<div class="discovery-grid">{#each missing.items as item}<DiscoveryCard {item} />{/each}</div>
+	<div class="discovery-grid">{#each missing.items.slice(0, itemsPerPage) as item}<DiscoveryCard {item} />{/each}</div>
 	<SectionHeader title="Similar Artists" eyebrow="outside library" />
-	<div class="discovery-grid">{#each similar.items as item}<DiscoveryCard {item} />{/each}</div>
+	<div class="discovery-grid">{#each similar.items.slice(0, itemsPerPage) as item}<DiscoveryCard {item} />{/each}</div>
+	<ItemsPerPage bind:value={itemsPerPage} total={totalDiscoveryItems} shown={shownDiscoveryItems} />
 {/if}

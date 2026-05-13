@@ -6,8 +6,8 @@ pub struct RecommendationService;
 
 impl RecommendationService {
     pub async fn rediscovery(&self, p: &sqlx::SqlitePool) -> anyhow::Result<serde_json::Value> {
-        let rows = sqlx::query_as::<_, (i64, String, Option<String>, i64, Option<String>)>(
-            "SELECT id, title, last_played_at, play_count, genre FROM tracks WHERE COALESCE(play_count, 0) > 0 ORDER BY COALESCE(last_played_at,'1970-01-01') ASC, play_count DESC LIMIT 50",
+        let rows = sqlx::query_as::<_, (i64, String, Option<String>, Option<i64>, i64, Option<String>)>(
+            "SELECT id, title, last_played_at, album_id, play_count, genre FROM tracks WHERE COALESCE(play_count, 0) > 0 ORDER BY COALESCE(last_played_at,'1970-01-01') ASC, play_count DESC LIMIT 50",
         )
         .fetch_all(p)
         .await?;
@@ -22,8 +22,8 @@ impl RecommendationService {
         &self,
         p: &sqlx::SqlitePool,
     ) -> anyhow::Result<serde_json::Value> {
-        let rows = sqlx::query_as::<_, (i64, String, Option<String>, Option<i64>)>(
-            "SELECT id, title, genre, play_count FROM tracks ORDER BY COALESCE(last_played_at,'1970-01-01') DESC, COALESCE(play_count,0) DESC LIMIT 50",
+        let rows = sqlx::query_as::<_, (i64, String, Option<String>, Option<i64>, Option<i64>)>(
+            "SELECT id, title, genre, album_id, play_count FROM tracks ORDER BY COALESCE(last_played_at,'1970-01-01') DESC, COALESCE(play_count,0) DESC LIMIT 50",
         )
         .fetch_all(p)
         .await?;
