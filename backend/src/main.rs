@@ -7,6 +7,7 @@ mod utils;
 use std::{collections::HashSet, env, net::SocketAddr, sync::Arc, time::Duration};
 
 use axum::{
+    http::{header, HeaderName, HeaderValue, Method},
     middleware,
     routing::{get, post},
     Router,
@@ -18,7 +19,10 @@ use services::{
 };
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 use std::str::FromStr;
-use tower_http::trace::TraceLayer;
+use tower_http::{
+    cors::{AllowOrigin, CorsLayer},
+    trace::TraceLayer,
+};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
@@ -186,7 +190,10 @@ async fn run() -> anyhow::Result<()> {
         ));
     }
 
-    let app = app.layer(TraceLayer::new_for_http()).with_state(state);
+    let app = app
+        .layer(TraceLayer::new_for_http())
+        .layer(cors_layer())
+        .with_state(state);
 
     let host = env::var("BACKEND_HOST").unwrap_or_else(|_| "0.0.0.0".into());
     let port = env::var("BACKEND_PORT").unwrap_or_else(|_| "8080".into());
@@ -195,6 +202,55 @@ async fn run() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+fn cors_layer() -> CorsLayer {
+    CorsLayer::new()
+        .allow_origin(AllowOrigin::list(frontend_allowed_origins()))
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::PATCH,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
+        .allow_headers([
+            header::AUTHORIZATION,
+            header::CONTENT_TYPE,
+            header::RANGE,
+            HeaderName::from_static("cf-access-jwt-assertion"),
+        ])
+        .expose_headers([
+            header::ACCEPT_RANGES,
+            header::CONTENT_LENGTH,
+            header::CONTENT_RANGE,
+            header::CONTENT_TYPE,
+            header::ETAG,
+            header::LAST_MODIFIED,
+        ])
+        .allow_credentials(true)
+        .max_age(Duration::from_secs(3600))
+}
+
+fn frontend_allowed_origins() -> Vec<HeaderValue> {
+    let defaults = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "capacitor://localhost",
+        "ionic://localhost",
+    ];
+
+    env::var("FRONTEND_ALLOWED_ORIGINS")
+        .unwrap_or_default()
+        .split(',')
+        .chain(defaults)
+        .map(str::trim)
+        .filter(|origin| !origin.is_empty())
+        .filter_map(|origin| origin.parse().ok())
+        .collect()
 }
 
 #[cfg(test)]

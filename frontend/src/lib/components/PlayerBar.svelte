@@ -96,6 +96,7 @@
 
 <audio
 	bind:this={audio}
+	crossorigin="use-credentials"
 	on:timeupdate={() => setTime(audio.currentTime, audio.duration)}
 	on:loadedmetadata={() => setTime(audio.currentTime, audio.duration)}
 	on:ended={playNext}

@@ -83,13 +83,13 @@ async function fetchCachedBlob(url: string): Promise<Blob> {
 		const cached = await cache.match(url);
 		if (cached?.ok) return cached.blob();
 
-		const response = await fetch(url, { cache: 'force-cache' });
+		const response = await fetch(url, { cache: 'force-cache', credentials: 'include' });
 		if (!response.ok) throw new Error(`image_fetch_failed_${response.status}`);
 		await cache.put(url, response.clone());
 		return response.blob();
 	}
 
-	const response = await fetch(url, { cache: 'force-cache' });
+	const response = await fetch(url, { cache: 'force-cache', credentials: 'include' });
 	if (!response.ok) throw new Error(`image_fetch_failed_${response.status}`);
 	return response.blob();
 }

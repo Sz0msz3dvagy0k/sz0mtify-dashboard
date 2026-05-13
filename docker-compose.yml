@@ -4,6 +4,8 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     hostname: dash-backend
+    ports:
+      - "[::1]:8080:8080"
     env_file: .env
     volumes:
       - data:/data
@@ -13,10 +15,6 @@ services:
       dockerfile: frontend/Dockerfile
     hostname: dash-frontend
     env_file: .env
-    environment:
-      BACKEND_INTERNAL_URL: http://dash-backend:8080
-      HOST: 0.0.0.0
-      PORT: 3000
     ports: 
       - "[::1]:5173:3000"
     depends_on: 

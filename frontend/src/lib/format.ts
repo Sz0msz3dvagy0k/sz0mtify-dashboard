@@ -1,3 +1,5 @@
+import { env } from '$env/dynamic/public';
+
 export function formatNumber(value: number | null | undefined): string {
 	return new Intl.NumberFormat('en-US').format(value ?? 0);
 }
@@ -59,5 +61,5 @@ export function formatArtistBio(value: string | null | undefined): string {
 }
 
 export function apiBase(): string {
-	return (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
+	return (env.FRONTEND_API_BASE_URL || '').replace(/\/$/, '');
 }

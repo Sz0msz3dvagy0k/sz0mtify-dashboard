@@ -31,6 +31,7 @@ export class ApiError extends Error {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
 	const response = await fetch(`${apiBase()}${path}`, {
 		headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) },
+		credentials: 'include',
 		...init
 	});
 	const payload = (await response.json().catch(() => null)) as ApiEnvelope<T> | null;
@@ -43,7 +44,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-	health: () => fetch(`${apiBase()}/api/health`).then((r) => r.json()),
+	health: () => fetch(`${apiBase()}/api/health`, { credentials: 'include' }).then((r) => r.json()),
 	settings: () => request<[string, string][]>('/api/settings'),
 	saveSettings: (body: Record<string, unknown>) =>
 		request<Record<string, unknown>>('/api/settings', { method: 'POST', body: JSON.stringify(body) }),
