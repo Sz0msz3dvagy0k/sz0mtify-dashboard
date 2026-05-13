@@ -70,19 +70,23 @@
 
 	async function loadTrackStream(trackId: number, requestId: number) {
 		try {
+			console.debug('[player] loading stream', { trackId });
 			const src = await streamUrl(trackId);
 			if (requestId !== streamRequestId || currentTrack?.id !== trackId) return;
 			audio.src = src;
 			audio.load();
 			if ($player.isPlaying) void playAudio(trackId);
-		} catch {
+		} catch (error) {
+			console.warn('[player] stream load failed', { trackId, error });
 			if (requestId === streamRequestId) setPlaying(false);
 		}
 	}
 
 	async function playAudio(trackId: number) {
 		try {
+			console.debug('[player] play requested', { trackId, readyState: audio.readyState, networkState: audio.networkState });
 			await audio.play();
+			console.debug('[player] playback started', { trackId });
 			if (registeredTrackId !== trackId) {
 				await api
 					.nowPlaying(trackId)
@@ -93,9 +97,56 @@
 						console.warn('Unable to register now playing', error);
 					});
 			}
-		} catch {
+		} catch (error) {
+			console.warn('[player] audio.play failed', {
+				trackId,
+				error,
+				mediaError: describeMediaError(audio.error),
+				networkState: audio.networkState,
+				readyState: audio.readyState
+			});
 			setPlaying(false);
 		}
+	}
+
+	function logAudioEvent(eventName: string) {
+		console.debug(`[player] audio ${eventName}`, {
+			trackId: currentTrack?.id ?? null,
+			currentSrc: redactStreamToken(audio.currentSrc),
+			networkState: audio.networkState,
+			readyState: audio.readyState,
+			mediaError: describeMediaError(audio.error)
+		});
+	}
+
+	function logAudioError() {
+		console.warn('[player] audio element error', {
+			trackId: currentTrack?.id ?? null,
+			currentSrc: redactStreamToken(audio.currentSrc),
+			networkState: audio.networkState,
+			readyState: audio.readyState,
+			mediaError: describeMediaError(audio.error)
+		});
+	}
+
+	function describeMediaError(error: MediaError | null) {
+		if (!error) return null;
+		const names: Record<number, string> = {
+			[MediaError.MEDIA_ERR_ABORTED]: 'MEDIA_ERR_ABORTED',
+			[MediaError.MEDIA_ERR_NETWORK]: 'MEDIA_ERR_NETWORK',
+			[MediaError.MEDIA_ERR_DECODE]: 'MEDIA_ERR_DECODE',
+			[MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED]: 'MEDIA_ERR_SRC_NOT_SUPPORTED'
+		};
+		return {
+			code: error.code,
+			name: names[error.code] ?? 'MEDIA_ERR_UNKNOWN',
+			message: error.message
+		};
+	}
+
+	function redactStreamToken(value: string) {
+		if (!value) return '';
+		return value.replace(/([?&]stream_token=)[^&]+/, '$1[redacted]');
 	}
 
 	onMount(() => {
@@ -109,7 +160,13 @@
 	bind:this={audio}
 	crossorigin="use-credentials"
 	on:timeupdate={() => setTime(audio.currentTime, audio.duration)}
-	on:loadedmetadata={() => setTime(audio.currentTime, audio.duration)}
+	on:loadedmetadata={() => {
+		setTime(audio.currentTime, audio.duration);
+		logAudioEvent('loadedmetadata');
+	}}
+	on:canplay={() => logAudioEvent('canplay')}
+	on:stalled={() => logAudioEvent('stalled')}
+	on:error={logAudioError}
 	on:ended={playNext}
 ></audio>
 

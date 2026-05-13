@@ -100,7 +100,9 @@ export function toggleQueue() {
 }
 
 export async function streamUrl(trackId: number) {
+	console.debug('[player] requesting stream token', { trackId });
 	const token = await api.streamToken();
+	console.debug('[player] stream token issued', { trackId, expiresAt: token.expires_at });
 	return withStreamToken(`${apiBase()}/api/tracks/${trackId}/stream`, token.token);
 }
 
