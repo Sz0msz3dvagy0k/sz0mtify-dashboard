@@ -17,6 +17,7 @@
 	let error = '';
 	let loading = true;
 	let itemsPerPage = 18;
+	let pageIndex = 1;
 
 	async function load() {
 		loading = true;
@@ -43,7 +44,9 @@
 	$: artistImageUrl = artist?.[6] ?? null;
 	$: fallbackHeroImageSrc = coverUrl(representativeCoverArtId);
 	$: artistBio = formatArtistBio(artist?.[5]);
-	$: visibleAlbums = detail?.albums.slice(0, itemsPerPage) ?? [];
+	$: pageStart = (pageIndex - 1) * itemsPerPage;
+	$: visibleAlbums = detail?.albums.slice(pageStart, pageStart + itemsPerPage) ?? [];
+	$: if (pageIndex > Math.max(1, Math.ceil((detail?.albums.length ?? 0) / itemsPerPage))) pageIndex = 1;
 </script>
 
 {#if loading}
@@ -73,5 +76,5 @@
 			<AlbumCard id={album[0]} title={album[1]} artist={artist[1]} year={album[2]} coverArtId={album[3]} />
 		{/each}
 	</div>
-	<ItemsPerPage bind:value={itemsPerPage} total={detail.albums.length} shown={visibleAlbums.length} />
+	<ItemsPerPage bind:value={itemsPerPage} bind:page={pageIndex} total={detail.albums.length} shown={visibleAlbums.length} />
 {/if}

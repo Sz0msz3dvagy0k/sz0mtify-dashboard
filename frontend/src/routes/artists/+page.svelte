@@ -21,6 +21,7 @@
 	let error = '';
 	let filter = '';
 	let itemsPerPage = 18;
+	let page = 1;
 
 	async function load() {
 		loading = true;
@@ -42,7 +43,9 @@
 	$: storageArtistRows = storage?.size_by_artist.slice(0, 10) ?? [];
 	$: storageArtistTableRows = storageArtistRows.map((row) => [row[1], formatBytes(row[2]), row[3]]);
 	$: storageArtistTableLinks = storageArtistRows.map((row) => [row[0] ? `/artists/${row[0]}` : null, null, null]);
-	$: visibleArtists = filtered.slice(0, itemsPerPage);
+	$: pageStart = (page - 1) * itemsPerPage;
+	$: visibleArtists = filtered.slice(pageStart, pageStart + itemsPerPage);
+	$: if (page > Math.max(1, Math.ceil(filtered.length / itemsPerPage))) page = 1;
 
 	onMount(load);
 </script>
@@ -77,5 +80,5 @@
 			<ArtistCard id={artist[0]} name={artist[1]} albums={artist[2] ?? 0} tracks={artist[3] ?? 0} plays={artist[4] ?? 0} artistImageUrl={artist[5]} coverArtId={artist[6]} coverAlbumId={representativeAlbumByArtist.get(artist[0]) ?? null} />
 		{/each}
 	</div>
-	<ItemsPerPage bind:value={itemsPerPage} total={filtered.length} shown={visibleArtists.length} />
+	<ItemsPerPage bind:value={itemsPerPage} bind:page total={filtered.length} shown={visibleArtists.length} />
 {/if}

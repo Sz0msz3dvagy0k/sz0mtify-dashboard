@@ -19,6 +19,7 @@
 	let error = '';
 	let includeOwned = false;
 	let itemsPerPage = 18;
+	let pageIndex = 1;
 
 	async function load() {
 		loading = true;
@@ -48,11 +49,17 @@
 	}
 
 	onMount(load);
+	$: pageStart = (pageIndex - 1) * itemsPerPage;
+	$: pagedNewReleases = newReleases?.items.slice(pageStart, pageStart + itemsPerPage) ?? [];
+	$: pagedMissing = missing?.items.slice(pageStart, pageStart + itemsPerPage) ?? [];
+	$: pagedSimilar = similar?.items.slice(pageStart, pageStart + itemsPerPage) ?? [];
 	$: shownDiscoveryItems =
-		Math.min(itemsPerPage, newReleases?.items.length ?? 0) +
-		Math.min(itemsPerPage, missing?.items.length ?? 0) +
-		Math.min(itemsPerPage, similar?.items.length ?? 0);
+		pagedNewReleases.length +
+		pagedMissing.length +
+		pagedSimilar.length;
 	$: totalDiscoveryItems = (newReleases?.total ?? 0) + (missing?.total ?? 0) + (similar?.total ?? 0);
+	$: pageTotal = Math.max(newReleases?.items.length ?? 0, missing?.items.length ?? 0, similar?.items.length ?? 0);
+	$: if (pageIndex > Math.max(1, Math.ceil(pageTotal / itemsPerPage))) pageIndex = 1;
 </script>
 
 {#if loading}
@@ -71,11 +78,11 @@
 		{#if refreshResult}<span class="muted">Created {refreshResult.created_count}, updated {refreshResult.updated_count}</span>{/if}
 	</div>
 	<SectionHeader title="New From Your Artists" eyebrow="Last.fm" />
-	<div class="discovery-grid">{#each newReleases.items.slice(0, itemsPerPage) as item}<DiscoveryCard {item} />{/each}</div>
+	<div class="discovery-grid">{#each pagedNewReleases as item}<DiscoveryCard {item} />{/each}</div>
 	{#if !newReleases.items.length}<EmptyState title="No discovery rows yet" detail="Run refresh to generate candidates." />{/if}
 	<SectionHeader title="Missing Albums" eyebrow="not owned by default" />
-	<div class="discovery-grid">{#each missing.items.slice(0, itemsPerPage) as item}<DiscoveryCard {item} />{/each}</div>
+	<div class="discovery-grid">{#each pagedMissing as item}<DiscoveryCard {item} />{/each}</div>
 	<SectionHeader title="Similar Artists" eyebrow="outside library" />
-	<div class="discovery-grid">{#each similar.items.slice(0, itemsPerPage) as item}<DiscoveryCard {item} />{/each}</div>
-	<ItemsPerPage bind:value={itemsPerPage} total={totalDiscoveryItems} shown={shownDiscoveryItems} />
+	<div class="discovery-grid">{#each pagedSimilar as item}<DiscoveryCard {item} />{/each}</div>
+	<ItemsPerPage bind:value={itemsPerPage} bind:page={pageIndex} total={totalDiscoveryItems} pageTotal={pageTotal} shown={shownDiscoveryItems} />
 {/if}

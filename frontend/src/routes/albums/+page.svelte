@@ -22,6 +22,7 @@
 	let filter = '';
 	let sort = 'title';
 	let itemsPerPage = 18;
+	let page = 1;
 
 	async function load() {
 		loading = true;
@@ -40,9 +41,11 @@
 		.filter((album) => `${album[1]} ${artistMap.get(album[2] ?? -1) ?? ''} ${album[4] ?? ''}`.toLowerCase().includes(filter.toLowerCase()))
 		.sort((a, b) => sort === 'year' ? (b[3] ?? 0) - (a[3] ?? 0) : a[1].localeCompare(b[1]));
 	$: largest = storage?.largest_albums.slice(0, 12) ?? [];
-	$: visibleAlbums = filtered.slice(0, itemsPerPage);
+	$: pageStart = (page - 1) * itemsPerPage;
+	$: visibleAlbums = filtered.slice(pageStart, pageStart + itemsPerPage);
 	$: largestTableRows = largest.slice(0, 8).map((a) => [a[1], artistMap.get(a[2] ?? -1) ?? 'Unknown', formatBytes(a[3]), a[4]]);
 	$: largestTableLinks = largest.slice(0, 8).map((a) => [a[0] ? `/albums/${a[0]}` : null, null, null, null]);
+	$: if (page > Math.max(1, Math.ceil(filtered.length / itemsPerPage))) page = 1;
 
 	onMount(load);
 </script>
@@ -85,7 +88,7 @@
 				<AlbumCard id={album[0]} title={album[1]} artist={artistMap.get(album[2] ?? -1) ?? 'Unknown artist'} year={album[3]} genre={album[4]} coverArtId={album[5]} />
 			{/each}
 		</div>
-		<ItemsPerPage bind:value={itemsPerPage} total={filtered.length} shown={visibleAlbums.length} />
+		<ItemsPerPage bind:value={itemsPerPage} bind:page total={filtered.length} shown={visibleAlbums.length} />
 	{:else}
 		<EmptyState title="No albums match" />
 	{/if}
