@@ -422,23 +422,45 @@ pub async fn stream_track(
     }
 }
 
+pub async fn track_now_playing(
+    State(state): State<Arc<AppState>>,
+    Path(track_id): Path<i64>,
+) -> impl IntoResponse {
+    if track_id <= 0 {
+        return (StatusCode::BAD_REQUEST, err("invalid_track_id")).into_response();
+    }
+
+    match register_track_now_playing(&state.pool, track_id).await {
+        Ok(()) => ok(json!({"track_id": track_id, "status": "registered"})).into_response(),
+        Err(TrackStreamError::NotFound) => {
+            (StatusCode::NOT_FOUND, err("track_not_found")).into_response()
+        }
+        Err(TrackStreamError::NotStreamable) => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            err("track_not_streamable"),
+        )
+            .into_response(),
+        Err(TrackStreamError::UpstreamNotFound) => {
+            (StatusCode::NOT_FOUND, err("track_not_found_upstream")).into_response()
+        }
+        Err(TrackStreamError::UpstreamRangeNotSatisfiable(response)) => response,
+        Err(TrackStreamError::Upstream(error)) => {
+            warn!(track_id, error = %error, "failed to register Subsonic now playing");
+            (
+                StatusCode::BAD_GATEWAY,
+                err("failed_to_register_now_playing"),
+            )
+                .into_response()
+        }
+    }
+}
+
 pub async fn cover(
     State(state): State<Arc<AppState>>,
     Path(cover_art_id): Path<String>,
 ) -> Response {
     if !is_valid_cover_art_id(&cover_art_id) {
         return (StatusCode::BAD_REQUEST, err("invalid_cover_art_id")).into_response();
-    }
-
-    let exists =
-        sqlx::query_as::<_, (i64,)>("SELECT id FROM albums WHERE cover_art_id = ? LIMIT 1")
-            .bind(&cover_art_id)
-            .fetch_optional(&state.pool)
-            .await;
-    match exists {
-        Ok(Some(_)) => {}
-        Ok(None) => return (StatusCode::NOT_FOUND, err("cover_art_not_found")).into_response(),
-        Err(_) => return err("failed_to_load_cover").into_response(),
     }
 
     match fetch_cover_art(&state.pool, &cover_art_id).await {
@@ -514,7 +536,7 @@ fn is_valid_cover_art_id(cover_art_id: &str) -> bool {
         && cover_art_id.len() <= 256
         && cover_art_id
             .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ':' | '~'))
 }
 
 fn is_valid_subsonic_id(id: &str) -> bool {
@@ -685,6 +707,46 @@ async fn fetch_track_stream(
         suffix,
     };
     fetch_subsonic_track_stream(pool, &metadata, request_headers).await
+}
+
+async fn register_track_now_playing(
+    pool: &sqlx::SqlitePool,
+    track_id: i64,
+) -> Result<(), TrackStreamError> {
+    let subsonic_id = track_subsonic_id(pool, track_id).await?;
+    let time = chrono::Utc::now().timestamp_millis().to_string();
+    subsonic_json(
+        pool,
+        "scrobble",
+        &[
+            ("id", subsonic_id),
+            ("time", time),
+            ("submission", "false".to_string()),
+        ],
+    )
+    .await
+    .map(|_| ())
+    .map_err(|error| TrackStreamError::Upstream(error.into()))
+}
+
+async fn track_subsonic_id(
+    pool: &sqlx::SqlitePool,
+    track_id: i64,
+) -> Result<String, TrackStreamError> {
+    let track = sqlx::query_as::<_, (Option<String>,)>(
+        "SELECT subsonic_id FROM tracks WHERE id = ? LIMIT 1",
+    )
+    .bind(track_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|error| TrackStreamError::Upstream(error.into()))?;
+
+    let Some((subsonic_id,)) = track else {
+        return Err(TrackStreamError::NotFound);
+    };
+    subsonic_id
+        .and_then(|id| non_empty_owned(&id))
+        .ok_or(TrackStreamError::NotStreamable)
 }
 
 async fn fetch_subsonic_track_stream(

@@ -106,6 +106,18 @@ impl AnalyticsService {
         .fetch_optional(p)
         .await?;
 
+        let artist_name = sqlx::query_as::<_, (Option<String>,)>(
+            "SELECT COALESCE(album_artist.name, artist.name)
+             FROM albums al
+             LEFT JOIN artists artist ON artist.id = al.artist_id
+             LEFT JOIN artists album_artist ON album_artist.id = al.album_artist_id
+             WHERE al.id = ?",
+        )
+        .bind(id)
+        .fetch_optional(p)
+        .await?
+        .and_then(|row| row.0);
+
         let tracks = sqlx::query_as::<_, (i64, String, Option<i64>, Option<i64>)>(
             "SELECT id, title, track_number, disc_number FROM tracks WHERE album_id = ? ORDER BY disc_number, track_number, id",
         )
@@ -113,7 +125,7 @@ impl AnalyticsService {
         .fetch_all(p)
         .await?;
 
-        Ok(json!({"album": album, "tracks": tracks}))
+        Ok(json!({"album": album, "artist_name": artist_name, "tracks": tracks}))
     }
 
     pub async fn artist_by_id(

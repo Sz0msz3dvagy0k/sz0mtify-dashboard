@@ -1,6 +1,7 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import { page } from '$app/stores';
-	import { onDestroy, onMount } from 'svelte';
+	import { onDestroy } from 'svelte';
 	import { api } from '$lib/api';
 	import type { AlbumDetail, ArtistTuple } from '$lib/types';
 	import EmptyState from '$lib/components/EmptyState.svelte';
@@ -10,30 +11,36 @@
 	import { coverUrl, formatNumber } from '$lib/format';
 	import { playQueue, type QueueTrack } from '$lib/player';
 
-	let detail: AlbumDetail;
+	let detail: AlbumDetail | null = null;
 	let artists: ArtistTuple[] = [];
 	let error = '';
 	let loading = true;
+	let loadedAlbumId: number | null = null;
 	let highlightedTrackId: number | null = null;
 	let lastHighlightedTrackParam: number | null = null;
 	let highlightTimer: ReturnType<typeof setTimeout> | null = null;
 
-	async function load() {
+	async function load(albumId: number) {
 		loading = true;
+		error = '';
+		detail = null;
 		try {
-			[detail, artists] = await Promise.all([api.album(Number($page.params.id)), api.artists()]);
+			[detail, artists] = await Promise.all([api.album(albumId), api.artists()]);
+			loadedAlbumId = albumId;
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Unable to load album';
 		} finally {
 			loading = false;
 		}
 	}
-	onMount(load);
 	onDestroy(() => {
 		if (highlightTimer) clearTimeout(highlightTimer);
 	});
 	$: album = detail?.album;
-	$: artistName = artists.find((artist) => artist[0] === album?.[2])?.[1] ?? 'Unknown artist';
+	$: albumId = Number($page.params.id);
+	$: if (browser && Number.isFinite(albumId) && albumId > 0 && albumId !== loadedAlbumId) void load(albumId);
+	$: artistName = detail?.artist_name ?? artists.find((artist) => artist[0] === album?.[2])?.[1] ?? 'Unknown artist';
+	$: albumTracks = detail?.tracks ?? [];
 	$: trackParam = Number($page.url.searchParams.get('track'));
 	$: if (!loading && Number.isFinite(trackParam) && trackParam > 0 && trackParam !== lastHighlightedTrackParam) {
 		lastHighlightedTrackParam = trackParam;
@@ -47,7 +54,7 @@
 
 	function queue(): QueueTrack[] {
 		if (!album) return [];
-		return detail.tracks.map((track) => ({
+		return albumTracks.map((track) => ({
 			id: track[0],
 			title: track[1],
 			artist: artistName,
@@ -66,7 +73,7 @@
 {#if loading}
 	<div class="skeleton-card"></div>
 {:else if error}
-	<ErrorState message={error} retry={load} />
+	<ErrorState message={error} retry={() => { if (Number.isFinite(albumId) && albumId > 0) void load(albumId); }} />
 {:else if !album}
 	<EmptyState title="Album not found" />
 {:else}
@@ -80,9 +87,9 @@
 			<div class="metric-grid compact">
 				<StatCard label="Year" value={album[3] ?? '—'} />
 				<StatCard label="Genre" value={album[4] ?? '—'} />
-				<StatCard label="Tracks" value={formatNumber(detail.tracks.length)} />
+				<StatCard label="Tracks" value={formatNumber(albumTracks.length)} />
 			</div>
-			<button class="button" on:click={() => play(0)} disabled={!detail.tracks.length}>Play Album</button>
+			<button class="button" on:click={() => play(0)} disabled={!albumTracks.length}>Play Album</button>
 		</div>
 	</section>
 	<div class="table-wrap">
@@ -91,7 +98,7 @@
 				<tr><th></th><th>#</th><th>Track</th><th>Disc</th></tr>
 			</thead>
 			<tbody>
-				{#each detail.tracks as track, index}
+				{#each albumTracks as track, index}
 					<tr class:highlight-row={track[0] === highlightedTrackId}>
 						<td><button class="icon-button" aria-label={`Play ${track[1]}`} on:click={() => play(index)}>▶</button></td>
 						<td>{track[2] ?? '—'}</td>

@@ -9,6 +9,7 @@
 		Play,
 		Volume2
 	} from 'lucide-svelte';
+	import { api } from '$lib/api';
 	import ImageWithFallback from './ImageWithFallback.svelte';
 	import { formatDuration } from '$lib/format';
 	import {
@@ -27,6 +28,7 @@
 
 	let audio: HTMLAudioElement;
 	let lastTrackId: number | null = null;
+	let registeredTrackId: number | null = null;
 	$: currentTrack = $player.queue[$player.currentIndex] ?? null;
 	$: progress = $player.duration > 0 ? ($player.currentTime / $player.duration) * 100 : 0;
 
@@ -34,7 +36,7 @@
 		lastTrackId = currentTrack.id;
 		audio.src = streamUrl(currentTrack.id);
 		audio.load();
-		if ($player.isPlaying) void audio.play().catch(() => setPlaying(false));
+		if ($player.isPlaying) void playAudio(currentTrack.id);
 	}
 
 	$: if (audio && Math.abs(audio.volume - $player.volume) > 0.01) {
@@ -42,7 +44,7 @@
 	}
 
 	$: if (audio && currentTrack && $player.isPlaying && audio.paused) {
-		void audio.play().catch(() => setPlaying(false));
+		void playAudio(currentTrack.id);
 	}
 
 	$: if (audio && !$player.isPlaying && !audio.paused) {
@@ -53,6 +55,24 @@
 		const value = Number((event.target as HTMLInputElement).value);
 		if (!audio || !$player.duration) return;
 		audio.currentTime = (value / 100) * $player.duration;
+	}
+
+	async function playAudio(trackId: number) {
+		try {
+			await audio.play();
+			if (registeredTrackId !== trackId) {
+				await api
+					.nowPlaying(trackId)
+					.then(() => {
+						registeredTrackId = trackId;
+					})
+					.catch((error) => {
+						console.warn('Unable to register now playing', error);
+					});
+			}
+		} catch {
+			setPlaying(false);
+		}
 	}
 
 	onMount(() => {

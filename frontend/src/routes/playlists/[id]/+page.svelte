@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/stores';
-	import { onMount } from 'svelte';
+	import { browser } from '$app/environment';
 	import { api } from '$lib/api';
 	import type { PlaylistDetail } from '$lib/types';
 	import EmptyState from '$lib/components/EmptyState.svelte';
@@ -11,17 +11,18 @@
 	import { coverUrl, formatDuration, formatNumber } from '$lib/format';
 	import { playQueue, type QueueTrack } from '$lib/player';
 
-	let detail: PlaylistDetail;
+	let detail: PlaylistDetail | null = null;
 	let loading = true;
 	let error = '';
+	let loadedPlaylistId = '';
 
-	async function load() {
+	async function load(playlistId: string) {
 		loading = true;
 		error = '';
+		detail = null;
 		try {
-			const playlistId = $page.params.id;
-			if (!playlistId) throw new Error('Missing playlist id');
 			detail = await api.playlist(playlistId);
+			loadedPlaylistId = playlistId;
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Unable to load playlist';
 		} finally {
@@ -30,13 +31,15 @@
 	}
 
 	function queue(): QueueTrack[] {
-		return detail.tracks.map((track) => ({
+		const currentDetail = detail;
+		if (!currentDetail) return [];
+		return currentDetail.tracks.map((track) => ({
 			id: track[0],
 			title: track[1],
 			artist: track[2] ?? 'Unknown artist',
-			album: track[4] ?? detail.playlist.name,
+			album: track[4] ?? currentDetail.playlist.name,
 			albumId: track[3],
-			coverArtId: track[5] ?? detail.playlist.cover_art_id,
+			coverArtId: track[5] ?? currentDetail.playlist.cover_art_id,
 			duration: track[6]
 		}));
 	}
@@ -45,19 +48,21 @@
 		playQueue(queue(), startIndex);
 	}
 
-	onMount(load);
+	$: playlistId = $page.params.id;
+	$: if (browser && playlistId && playlistId !== loadedPlaylistId) void load(playlistId);
+	$: playlistCoverArtId = detail?.playlist.cover_art_id ?? detail?.tracks.find((track) => track[5])?.[5] ?? null;
 </script>
 
 {#if loading}
 	<div class="skeleton-card"></div>
 {:else if error}
-	<ErrorState message={error} retry={load} />
+	<ErrorState message={error} retry={() => { if (playlistId) void load(playlistId); }} />
 {:else if !detail?.playlist}
 	<EmptyState title="Playlist not found" />
 {:else}
 	<section class="detail-hero">
 		<div class="detail-art">
-			<ImageWithFallback src={coverUrl(detail.playlist.cover_art_id)} alt={detail.playlist.name} />
+			<ImageWithFallback src={coverUrl(playlistCoverArtId)} alt={detail.playlist.name} />
 		</div>
 		<div>
 			<p class="eyebrow">Playlist</p>
@@ -73,8 +78,11 @@
 
 	<div class="panel-list">
 		{#each detail.tracks as track, index}
-			<div class="playable-row">
+			<div class="playable-row playlist-row">
 				<button class="icon-button" aria-label={`Play ${track[1]}`} on:click={() => play(index)}>▶</button>
+				<div class="playlist-track-art">
+					<ImageWithFallback src={coverUrl(track[5] ?? playlistCoverArtId)} alt={track[1]} />
+				</div>
 				<TrackRow title={track[1]} detail={track[2] ?? track[7] ?? ''} duration={track[6]} />
 			</div>
 		{/each}

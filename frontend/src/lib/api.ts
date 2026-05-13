@@ -55,6 +55,7 @@ export const api = {
 	tracks: () => request<TrackTuple[]>('/api/library/tracks'),
 	albums: () => request<AlbumTuple[]>('/api/library/albums'),
 	album: (id: number) => request<AlbumDetail>(`/api/library/albums/${id}`),
+	nowPlaying: (id: number) => request<unknown>(`/api/tracks/${id}/now-playing`, { method: 'POST' }),
 	artists: () => request<ArtistTuple[]>('/api/library/artists'),
 	artist: (id: number) => request<ArtistDetail>(`/api/library/artists/${id}`),
 	genres: () => request<GenreTuple[]>('/api/library/genres'),
