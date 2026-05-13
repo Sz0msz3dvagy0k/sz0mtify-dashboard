@@ -8,6 +8,7 @@ use std::env;
 use tracing::{info, warn};
 
 use crate::services::lastfm::LastfmClient;
+use crate::utils::artists::{parse_artist_credit, ArtistRole, ParsedArtistCredit};
 use crate::utils::matching::normalize_name;
 
 #[derive(Clone)]
@@ -102,6 +103,10 @@ impl SyncService {
         source: &str,
     ) -> anyhow::Result<()> {
         write_sync_state(pool, id, source, "running", None).await
+    }
+
+    pub async fn normalize_artist_credits(&self, pool: &sqlx::SqlitePool) -> anyhow::Result<i64> {
+        normalize_existing_artist_credits(pool).await
     }
 }
 
@@ -261,7 +266,14 @@ async fn import_subsonic_album(
         return Ok(0);
     }
     let artist_name = album["artist"].as_str().unwrap_or("Unknown Artist");
-    let artist_db_id = upsert_artist(pool, album["artistId"].as_str(), artist_name).await?;
+    let parsed_album_artist = parse_artist_credit(artist_name);
+    let album_primary_artist = first_primary_artist_name(&parsed_album_artist);
+    let artist_db_id = upsert_artist(
+        pool,
+        subsonic_artist_id_for_credit(&parsed_album_artist, album["artistId"].as_str()),
+        album_primary_artist,
+    )
+    .await?;
 
     sqlx::query("INSERT INTO albums(subsonic_id,title,artist_id,album_artist_id,year,genre,song_count,duration_seconds,size_bytes,cover_art_id,play_count) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(subsonic_id) DO UPDATE SET title=excluded.title, artist_id=excluded.artist_id, album_artist_id=excluded.album_artist_id, year=excluded.year, genre=excluded.genre, song_count=excluded.song_count, duration_seconds=excluded.duration_seconds, size_bytes=excluded.size_bytes, cover_art_id=excluded.cover_art_id, play_count=excluded.play_count, updated_at=datetime('now')")
         .bind(album_id)
@@ -299,16 +311,21 @@ async fn import_subsonic_album(
             seen_track_ids.insert(song_id.to_string());
         }
         let track_artist_name = song["artist"].as_str().unwrap_or(artist_name);
+        let parsed_track_artist = parse_artist_credit(track_artist_name);
+        let track_primary_artist = first_primary_artist_name(&parsed_track_artist);
         let track_artist_id = upsert_artist(
             pool,
-            song["artistId"].as_str().or(album["artistId"].as_str()),
-            track_artist_name,
+            subsonic_artist_id_for_credit(
+                &parsed_track_artist,
+                song["artistId"].as_str().or(album["artistId"].as_str()),
+            ),
+            track_primary_artist,
         )
         .await?;
 
         reconcile_track_identity_change(pool, song["id"].as_str(), song["path"].as_str()).await?;
         let mbid = track_mbid(&song);
-        sqlx::query("INSERT INTO tracks(subsonic_id,title,artist_id,album_id,album_artist_id,duration_seconds,track_number,disc_number,year,genre,file_path,suffix,content_type,size_bytes,bit_rate,bit_depth,sampling_rate,channel_count,play_count,mbid,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now')) ON CONFLICT(subsonic_id) DO UPDATE SET title=excluded.title, artist_id=excluded.artist_id, album_id=excluded.album_id, album_artist_id=excluded.album_artist_id, duration_seconds=excluded.duration_seconds, track_number=excluded.track_number, disc_number=excluded.disc_number, year=excluded.year, genre=excluded.genre, file_path=excluded.file_path, suffix=excluded.suffix, content_type=excluded.content_type, size_bytes=excluded.size_bytes, bit_rate=excluded.bit_rate, bit_depth=excluded.bit_depth, sampling_rate=excluded.sampling_rate, channel_count=excluded.channel_count, play_count=excluded.play_count, mbid=COALESCE(NULLIF(excluded.mbid, ''), tracks.mbid), updated_at=datetime('now')")
+        sqlx::query("INSERT INTO tracks(subsonic_id,title,artist_id,album_id,album_artist_id,duration_seconds,track_number,disc_number,year,genre,file_path,suffix,content_type,size_bytes,bit_rate,bit_depth,sampling_rate,channel_count,play_count,mbid,raw_artist,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now')) ON CONFLICT(subsonic_id) DO UPDATE SET title=excluded.title, artist_id=excluded.artist_id, album_id=excluded.album_id, album_artist_id=excluded.album_artist_id, duration_seconds=excluded.duration_seconds, track_number=excluded.track_number, disc_number=excluded.disc_number, year=excluded.year, genre=excluded.genre, file_path=excluded.file_path, suffix=excluded.suffix, content_type=excluded.content_type, size_bytes=excluded.size_bytes, bit_rate=excluded.bit_rate, bit_depth=excluded.bit_depth, sampling_rate=excluded.sampling_rate, channel_count=excluded.channel_count, play_count=excluded.play_count, mbid=COALESCE(NULLIF(excluded.mbid, ''), tracks.mbid), raw_artist=excluded.raw_artist, updated_at=datetime('now')")
             .bind(song["id"].as_str())
             .bind(song["title"].as_str().unwrap_or("Unknown Track"))
             .bind(track_artist_id)
@@ -329,8 +346,12 @@ async fn import_subsonic_album(
             .bind(song["channelCount"].as_i64())
             .bind(song["playCount"].as_i64().unwrap_or(0))
             .bind(mbid)
+            .bind(track_artist_name)
             .execute(pool)
             .await?;
+        let track_db_id =
+            imported_track_id(pool, song["id"].as_str(), song["path"].as_str()).await?;
+        upsert_track_artist_credits(pool, track_db_id, &parsed_track_artist).await?;
         inserted += 1;
     }
     Ok(inserted)
@@ -366,6 +387,177 @@ async fn remove_stale_subsonic_tracks(
     }
 
     Ok(removed)
+}
+
+async fn normalize_existing_artist_credits(pool: &sqlx::SqlitePool) -> anyhow::Result<i64> {
+    let mut normalized = normalize_existing_album_artists(pool).await?;
+    normalized += normalize_existing_track_artists(pool).await?;
+    refresh_library_rollups(pool).await?;
+    Ok(normalized)
+}
+
+async fn normalize_existing_album_artists(pool: &sqlx::SqlitePool) -> anyhow::Result<i64> {
+    let rows = sqlx::query_as::<_, (i64, Option<String>, Option<String>)>(
+        "SELECT al.id, COALESCE(ar.name, album_ar.name), COALESCE(ar.subsonic_id, album_ar.subsonic_id)
+         FROM albums al
+         LEFT JOIN artists ar ON ar.id = al.artist_id
+         LEFT JOIN artists album_ar ON album_ar.id = al.album_artist_id",
+    )
+    .fetch_all(pool)
+    .await?;
+    let mut normalized = 0_i64;
+
+    for (album_id, artist_name, subsonic_id) in rows {
+        let raw_artist = artist_name.as_deref().and_then(non_empty);
+        let Some(raw_artist) = raw_artist else {
+            continue;
+        };
+        let parsed = parse_artist_credit(raw_artist);
+        let artist_id = upsert_artist(
+            pool,
+            subsonic_artist_id_for_credit(&parsed, subsonic_id.as_deref()),
+            first_primary_artist_name(&parsed),
+        )
+        .await?;
+        let result = sqlx::query(
+            "UPDATE albums
+             SET artist_id = ?, album_artist_id = ?, updated_at = datetime('now')
+             WHERE id = ?
+               AND (artist_id IS NOT ? OR album_artist_id IS NOT ?)",
+        )
+        .bind(artist_id)
+        .bind(artist_id)
+        .bind(album_id)
+        .bind(artist_id)
+        .bind(artist_id)
+        .execute(pool)
+        .await?;
+        normalized += result.rows_affected() as i64;
+    }
+
+    Ok(normalized)
+}
+
+async fn normalize_existing_track_artists(pool: &sqlx::SqlitePool) -> anyhow::Result<i64> {
+    let rows = sqlx::query_as::<_, (i64, Option<String>, Option<String>, Option<String>)>(
+        "SELECT t.id, t.raw_artist, ar.name, ar.subsonic_id
+         FROM tracks t
+         LEFT JOIN artists ar ON ar.id = t.artist_id",
+    )
+    .fetch_all(pool)
+    .await?;
+    let mut normalized = 0_i64;
+
+    for (track_id, raw_artist, artist_name, subsonic_id) in rows {
+        let raw_artist = raw_artist
+            .as_deref()
+            .and_then(non_empty)
+            .or_else(|| artist_name.as_deref().and_then(non_empty))
+            .unwrap_or("Unknown Artist");
+        let parsed = parse_artist_credit(raw_artist);
+        let artist_id = upsert_artist(
+            pool,
+            subsonic_artist_id_for_credit(&parsed, subsonic_id.as_deref()),
+            first_primary_artist_name(&parsed),
+        )
+        .await?;
+
+        let result = sqlx::query(
+            "UPDATE tracks
+             SET artist_id = ?, raw_artist = ?, updated_at = datetime('now')
+             WHERE id = ?
+               AND (artist_id IS NOT ? OR COALESCE(raw_artist,'') != ?)",
+        )
+        .bind(artist_id)
+        .bind(raw_artist)
+        .bind(track_id)
+        .bind(artist_id)
+        .bind(raw_artist)
+        .execute(pool)
+        .await?;
+        upsert_track_artist_credits(pool, track_id, &parsed).await?;
+        normalized += result.rows_affected() as i64;
+    }
+
+    Ok(normalized)
+}
+
+fn first_primary_artist_name(parsed: &ParsedArtistCredit) -> &str {
+    parsed
+        .artists
+        .iter()
+        .find(|artist| artist.role == ArtistRole::Primary)
+        .map(|artist| artist.name.as_str())
+        .unwrap_or("Unknown Artist")
+}
+
+fn subsonic_artist_id_for_credit<'a>(
+    parsed: &ParsedArtistCredit,
+    subsonic_id: Option<&'a str>,
+) -> Option<&'a str> {
+    if parsed.is_simple_single_artist() {
+        subsonic_id.and_then(non_empty)
+    } else {
+        None
+    }
+}
+
+async fn imported_track_id(
+    pool: &sqlx::SqlitePool,
+    subsonic_id: Option<&str>,
+    file_path: Option<&str>,
+) -> anyhow::Result<i64> {
+    if let Some(subsonic_id) = subsonic_id.and_then(non_empty) {
+        let (id,): (i64,) = sqlx::query_as("SELECT id FROM tracks WHERE subsonic_id = ?")
+            .bind(subsonic_id)
+            .fetch_one(pool)
+            .await?;
+        return Ok(id);
+    }
+
+    if let Some(file_path) = file_path.and_then(non_empty) {
+        let (id,): (i64,) =
+            sqlx::query_as("SELECT id FROM tracks WHERE file_path = ? ORDER BY id DESC LIMIT 1")
+                .bind(file_path)
+                .fetch_one(pool)
+                .await?;
+        return Ok(id);
+    }
+
+    anyhow::bail!("imported track is missing both Subsonic id and file path")
+}
+
+async fn upsert_track_artist_credits(
+    pool: &sqlx::SqlitePool,
+    track_id: i64,
+    parsed: &ParsedArtistCredit,
+) -> anyhow::Result<()> {
+    sqlx::query("DELETE FROM track_artists WHERE track_id = ?")
+        .bind(track_id)
+        .execute(pool)
+        .await?;
+
+    for artist in &parsed.artists {
+        let artist_id = upsert_artist(pool, None, &artist.name).await?;
+        sqlx::query(
+            "INSERT INTO track_artists(track_id, artist_id, role, position, raw_artist, source, updated_at)
+             VALUES(?,?,?,?,?,'local_parser',datetime('now'))
+             ON CONFLICT(track_id, artist_id, role) DO UPDATE SET
+                position=excluded.position,
+                raw_artist=excluded.raw_artist,
+                source=excluded.source,
+                updated_at=datetime('now')",
+        )
+        .bind(track_id)
+        .bind(artist_id)
+        .bind(artist.role.as_str())
+        .bind(artist.position as i64)
+        .bind(&parsed.raw)
+        .execute(pool)
+        .await?;
+    }
+
+    Ok(())
 }
 
 async fn reconcile_track_identity_change(
@@ -889,9 +1081,33 @@ async fn refresh_library_rollups(pool: &sqlx::SqlitePool) -> anyhow::Result<()> 
 
     sqlx::query(
         "UPDATE artists
-         SET album_count = (SELECT COUNT(*) FROM albums WHERE albums.artist_id = artists.id OR albums.album_artist_id = artists.id),
-             track_count = (SELECT COUNT(*) FROM tracks WHERE tracks.artist_id = artists.id),
-             play_count = COALESCE((SELECT SUM(play_count) FROM tracks WHERE tracks.artist_id = artists.id), 0),
+         SET album_count = (
+                SELECT COUNT(DISTINCT albums.id)
+                FROM albums
+                WHERE albums.artist_id = artists.id
+                   OR albums.album_artist_id = artists.id
+                   OR EXISTS (
+                        SELECT 1
+                        FROM tracks
+                        JOIN track_artists ON track_artists.track_id = tracks.id
+                        WHERE tracks.album_id = albums.id
+                          AND track_artists.artist_id = artists.id
+                   )
+             ),
+             track_count = (
+                SELECT COUNT(DISTINCT track_artists.track_id)
+                FROM track_artists
+                WHERE track_artists.artist_id = artists.id
+             ),
+             play_count = COALESCE((
+                SELECT SUM(COALESCE(tracks.play_count,0))
+                FROM tracks
+                JOIN (
+                    SELECT DISTINCT track_id
+                    FROM track_artists
+                    WHERE track_artists.artist_id = artists.id
+                ) credited_tracks ON credited_tracks.track_id = tracks.id
+             ), 0),
              updated_at = datetime('now')",
     )
     .execute(pool)
@@ -1092,6 +1308,132 @@ mod tests {
 
         assert_eq!(removed, 1);
         assert_eq!(rows, vec![(1, Some("seen-id".to_string())), (3, None)]);
+    }
+
+    #[tokio::test]
+    async fn stores_parsed_track_artist_credits_and_rollups() {
+        let pool = test_pool().await;
+        sqlx::query("INSERT INTO tracks(id,title,play_count) VALUES(1,'Song',7)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let parsed = parse_artist_credit("Black Atlass feat. Jessie Reyez");
+
+        upsert_track_artist_credits(&pool, 1, &parsed)
+            .await
+            .unwrap();
+        refresh_library_rollups(&pool).await.unwrap();
+
+        let credits = sqlx::query_as::<_, (String, String, i64)>(
+            "SELECT ar.name, ta.role, ta.position
+             FROM track_artists ta
+             JOIN artists ar ON ar.id = ta.artist_id
+             ORDER BY CASE ta.role WHEN 'primary' THEN 0 ELSE 1 END, ta.position",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        let counts = sqlx::query_as::<_, (String, i64, i64)>(
+            "SELECT name, track_count, play_count FROM artists ORDER BY name",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+
+        assert_eq!(
+            credits,
+            vec![
+                ("Black Atlass".to_string(), "primary".to_string(), 0),
+                ("Jessie Reyez".to_string(), "featured".to_string(), 0),
+            ]
+        );
+        assert_eq!(
+            counts,
+            vec![
+                ("Black Atlass".to_string(), 1, 7),
+                ("Jessie Reyez".to_string(), 1, 7),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn normalizes_existing_compound_artist_rows() {
+        let pool = test_pool().await;
+        sqlx::query("INSERT INTO artists(id,name) VALUES(1,'Black Atlass feat. Jessie Reyez')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO albums(id,title,artist_id,album_artist_id) VALUES(1,'Album',1,1)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO tracks(id,title,artist_id,album_id,play_count) VALUES(1,'Song',1,1,4)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        normalize_existing_artist_credits(&pool).await.unwrap();
+
+        let track_artist = sqlx::query_as::<_, (String, String)>(
+            "SELECT ar.name, t.raw_artist
+             FROM tracks t
+             JOIN artists ar ON ar.id = t.artist_id
+             WHERE t.id = 1",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let album_artist = sqlx::query_as::<_, (String,)>(
+            "SELECT ar.name
+             FROM albums al
+             JOIN artists ar ON ar.id = al.artist_id
+             WHERE al.id = 1",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let credits = sqlx::query_as::<_, (String, String)>(
+            "SELECT ar.name, ta.role
+             FROM track_artists ta
+             JOIN artists ar ON ar.id = ta.artist_id
+             ORDER BY CASE ta.role WHEN 'primary' THEN 0 ELSE 1 END",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+
+        assert_eq!(
+            track_artist,
+            (
+                "Black Atlass".to_string(),
+                "Black Atlass feat. Jessie Reyez".to_string()
+            )
+        );
+        assert_eq!(album_artist, ("Black Atlass".to_string(),));
+        assert_eq!(
+            credits,
+            vec![
+                ("Black Atlass".to_string(), "primary".to_string()),
+                ("Jessie Reyez".to_string(), "featured".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn subsonic_artist_id_is_used_only_for_simple_artist_credits() {
+        let simple = parse_artist_credit("Ado");
+        let compound = parse_artist_credit("Calvin Harris & Alesso feat. Hurts");
+
+        assert_eq!(
+            subsonic_artist_id_for_credit(&simple, Some("artist-id")),
+            Some("artist-id")
+        );
+        assert_eq!(
+            subsonic_artist_id_for_credit(&compound, Some("compound-id")),
+            None
+        );
     }
 
     #[test]

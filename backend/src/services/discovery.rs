@@ -164,8 +164,9 @@ async fn favorite_artists(p: &sqlx::SqlitePool, limit: i64) -> anyhow::Result<Ve
     let rows = sqlx::query_as::<_, (i64, String)>(
         "SELECT ar.id, ar.name
          FROM artists ar
-         LEFT JOIN tracks t ON t.artist_id = ar.id
-         LEFT JOIN albums al ON al.artist_id = ar.id OR al.album_artist_id = ar.id
+         LEFT JOIN track_artists ta ON ta.artist_id = ar.id
+         LEFT JOIN tracks t ON t.id = ta.track_id
+         LEFT JOIN albums al ON al.artist_id = ar.id OR al.album_artist_id = ar.id OR al.id = t.album_id
          GROUP BY ar.id, ar.name
          ORDER BY
            COALESCE(SUM(t.play_count),0) DESC,
@@ -308,8 +309,15 @@ async fn album_match_status(
     normalized_title: &str,
 ) -> anyhow::Result<String> {
     let rows = sqlx::query_as::<_, (String,)>(
-        "SELECT title FROM albums WHERE artist_id = ? OR album_artist_id = ?",
+        "SELECT DISTINCT al.title
+         FROM albums al
+         LEFT JOIN tracks t ON t.album_id = al.id
+         LEFT JOIN track_artists ta ON ta.track_id = t.id
+         WHERE al.artist_id = ?
+            OR al.album_artist_id = ?
+            OR ta.artist_id = ?",
     )
+    .bind(artist_id)
     .bind(artist_id)
     .bind(artist_id)
     .fetch_all(p)
@@ -325,10 +333,15 @@ async fn track_match_status(
     artist_id: i64,
     normalized_title: &str,
 ) -> anyhow::Result<String> {
-    let rows = sqlx::query_as::<_, (String,)>("SELECT title FROM tracks WHERE artist_id = ?")
-        .bind(artist_id)
-        .fetch_all(p)
-        .await?;
+    let rows = sqlx::query_as::<_, (String,)>(
+        "SELECT DISTINCT tracks.title
+         FROM tracks
+         JOIN track_artists ON track_artists.track_id = tracks.id
+         WHERE track_artists.artist_id = ?",
+    )
+    .bind(artist_id)
+    .fetch_all(p)
+    .await?;
     Ok(match_name_status(
         rows.into_iter().map(|(name,)| name),
         normalized_title,

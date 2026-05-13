@@ -72,13 +72,20 @@ impl AnalyticsService {
                     (
                         SELECT al.cover_art_id
                         FROM albums al
-                        WHERE al.artist_id = ar.id
+                        LEFT JOIN tracks t ON t.album_id = al.id
+                        LEFT JOIN track_artists ta ON ta.track_id = t.id
+                        WHERE (al.artist_id = ar.id
+                           OR al.album_artist_id = ar.id
+                           OR ta.artist_id = ar.id)
                           AND al.cover_art_id IS NOT NULL
                           AND al.cover_art_id != ''
                         ORDER BY al.year DESC, al.id DESC
                         LIMIT 1
                     ) AS representative_cover_art_id
              FROM artists ar
+             WHERE COALESCE(ar.album_count,0) > 0
+                OR COALESCE(ar.track_count,0) > 0
+                OR COALESCE(ar.play_count,0) > 0
              ORDER BY ar.name ASC
              LIMIT 300",
         )
@@ -145,8 +152,17 @@ impl AnalyticsService {
         .await?;
 
         let albums = sqlx::query_as::<_, (i64, String, Option<i64>, Option<String>)>(
-            "SELECT id, title, year, cover_art_id FROM albums WHERE artist_id = ? ORDER BY year DESC, title ASC",
+            "SELECT DISTINCT al.id, al.title, al.year, al.cover_art_id
+             FROM albums al
+             LEFT JOIN tracks t ON t.album_id = al.id
+             LEFT JOIN track_artists ta ON ta.track_id = t.id
+             WHERE al.artist_id = ?
+                OR al.album_artist_id = ?
+                OR ta.artist_id = ?
+             ORDER BY al.year DESC, al.title ASC",
         )
+        .bind(id)
+        .bind(id)
         .bind(id)
         .fetch_all(p)
         .await?;
@@ -496,7 +512,15 @@ impl AnalyticsService {
         .fetch_all(p)
         .await?;
         let artists = sqlx::query_as::<_, (i64, String)>(
-            "SELECT id,name FROM artists WHERE name LIKE ? LIMIT 20",
+            "SELECT id,name
+             FROM artists
+             WHERE name LIKE ?
+               AND (
+                    COALESCE(album_count,0) > 0
+                 OR COALESCE(track_count,0) > 0
+                 OR COALESCE(play_count,0) > 0
+               )
+             LIMIT 20",
         )
         .bind(&t)
         .fetch_all(p)

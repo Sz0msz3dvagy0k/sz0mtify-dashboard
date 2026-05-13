@@ -88,10 +88,18 @@ async fn run() -> anyhow::Result<()> {
     ensure_sqlite_parent_dir(&database_url)?;
     let pool = connect_sqlite_pool(&database_url).await?;
     migrate(&pool).await?;
+    let sync = SyncService::new();
+    let normalized_artist_credits = sync.normalize_artist_credits(&pool).await?;
+    if normalized_artist_credits > 0 {
+        info!(
+            normalized_artist_credits,
+            "normalized existing artist credits"
+        );
+    }
 
     let state = Arc::new(AppState {
         pool: pool.clone(),
-        sync: SyncService::new(),
+        sync,
         sync_jobs: Arc::new(tokio::sync::Mutex::new(HashSet::new())),
         analytics: AnalyticsService,
         discovery: DiscoveryService,

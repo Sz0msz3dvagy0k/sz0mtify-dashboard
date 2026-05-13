@@ -14,7 +14,7 @@
 
 	let artists: ArtistTuple[] = [];
 	let albums: AlbumTuple[] = [];
-	let storage: StorageStats;
+	let storage: StorageStats | null = null;
 	let similar: DiscoveryList | null = null;
 	let loading = true;
 	let error = '';
@@ -37,6 +37,9 @@
 	$: representativeAlbumByArtist = new Map(
 		albums.filter((album) => album[2] !== null).map((album) => [album[2] as number, album[0]])
 	);
+	$: storageArtistRows = storage?.size_by_artist.slice(0, 10) ?? [];
+	$: storageArtistTableRows = storageArtistRows.map((row) => [row[1], formatBytes(row[2]), row[3]]);
+	$: storageArtistTableLinks = storageArtistRows.map((row) => [row[0] ? `/artists/${row[0]}` : null, null, null]);
 
 	onMount(load);
 </script>
@@ -61,7 +64,7 @@
 				series: [{ type: 'bar', data: topByTracks.map((a) => a[3] ?? 0).reverse(), color: '#f5f5f5' }]
 			}}
 		/>
-		<DataTable columns={['Artist', 'Storage', 'Tracks']} rows={storage.size_by_artist.slice(0, 10).map((row) => [row[1], formatBytes(row[2]), row[3]])} />
+		<DataTable columns={['Artist', 'Storage', 'Tracks']} rows={storageArtistTableRows} cellLinks={storageArtistTableLinks} />
 	</section>
 
 	<div class="toolbar"><FilterBar bind:value={filter} placeholder="Filter artists" /></div>
