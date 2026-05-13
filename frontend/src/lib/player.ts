@@ -1,4 +1,5 @@
 import { writable } from 'svelte/store';
+import { withAccessToken } from '$lib/auth';
 import { apiBase, coverUrl } from '$lib/format';
 
 export type QueueTrack = {
@@ -98,7 +99,7 @@ export function toggleQueue() {
 }
 
 export function streamUrl(trackId: number) {
-	return `${apiBase()}/api/tracks/${trackId}/stream`;
+	return withAccessToken(`${apiBase()}/api/tracks/${trackId}/stream`);
 }
 
 export function queueTrackImage(track: QueueTrack | null | undefined) {

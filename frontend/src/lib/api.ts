@@ -1,8 +1,11 @@
 import { apiBase } from './format';
+import { clearAuthSession, getAuthToken } from './auth';
 import type {
 	AlbumDetail,
 	AlbumTuple,
 	ApiEnvelope,
+	AuthSession,
+	AuthUser,
 	ArtistDetail,
 	ArtistTuple,
 	DiscoveryList,
@@ -29,13 +32,19 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+	const headers = new Headers(init?.headers);
+	if (!headers.has('content-type')) headers.set('content-type', 'application/json');
+	const token = getAuthToken();
+	if (token) headers.set('authorization', `Bearer ${token}`);
+
 	const response = await fetch(`${apiBase()}${path}`, {
-		headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) },
+		...init,
+		headers,
 		credentials: 'include',
-		...init
 	});
 	const payload = (await response.json().catch(() => null)) as ApiEnvelope<T> | null;
 	if (!response.ok) {
+		if (response.status === 401) clearAuthSession();
 		throw new ApiError(payload && 'error' in payload ? payload.error : response.statusText, response.status);
 	}
 	if (!payload) throw new ApiError('Empty response', response.status);
@@ -45,6 +54,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
 	health: () => fetch(`${apiBase()}/api/health`, { credentials: 'include' }).then((r) => r.json()),
+	login: (body: { username: string; password: string }) =>
+		request<AuthSession>('/api/auth/login', { method: 'POST', body: JSON.stringify(body) }),
+	logout: () => request<{ status: string }>('/api/auth/logout', { method: 'POST' }),
+	me: () => request<AuthUser>('/api/auth/me'),
 	settings: () => request<[string, string][]>('/api/settings'),
 	saveSettings: (body: Record<string, unknown>) =>
 		request<Record<string, unknown>>('/api/settings', { method: 'POST', body: JSON.stringify(body) }),

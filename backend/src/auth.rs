@@ -1,231 +1,209 @@
 use std::{
+    collections::HashMap,
     env,
     sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{anyhow, Context};
 use axum::{
     body::Body,
     extract::{Request, State},
-    http::{header::HeaderName, StatusCode},
+    http::{header, HeaderMap, StatusCode},
     middleware::Next,
-    response::Response,
+    response::{IntoResponse, Response},
+    Json,
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-use ring::signature;
-use serde::Deserialize;
-use serde_json::Value;
-use tracing::{info, warn};
-
-const ACCESS_JWT_HEADER: HeaderName = HeaderName::from_static("cf-access-jwt-assertion");
-
-#[derive(Clone)]
-pub struct CloudflareAccessVerifier {
-    audience: String,
-    issuer: String,
-    keys: Vec<JwkKey>,
-}
+use rand::RngCore;
+use ring::digest;
+use serde::Serialize;
+use serde_json::json;
+use tokio::sync::Mutex;
+use tracing::warn;
 
 #[derive(Clone)]
-struct JwkKey {
-    kid: String,
-    n: Vec<u8>,
-    e: Vec<u8>,
+pub struct AppAuth {
+    username: String,
+    password_hash: [u8; 32],
+    sessions: Arc<Mutex<HashMap<String, Session>>>,
+    session_ttl: Duration,
 }
 
-#[derive(Deserialize)]
-struct JwksResponse {
-    keys: Vec<JwksKey>,
+#[derive(Clone)]
+struct Session {
+    username: String,
+    expires_at: u64,
 }
 
-#[derive(Deserialize)]
-struct JwksKey {
-    kid: String,
-    kty: String,
-    n: String,
-    e: String,
-    alg: Option<String>,
+#[derive(Clone, Serialize)]
+pub struct AuthSession {
+    pub username: String,
+    pub token: String,
+    pub expires_at: u64,
 }
 
-#[derive(Deserialize)]
-struct JwtHeader {
-    alg: String,
-    kid: String,
+#[derive(Clone)]
+pub struct AuthUser {
+    pub username: String,
 }
 
-#[derive(Deserialize)]
-struct AccessClaims {
-    aud: Value,
-    exp: u64,
-    iss: String,
-    nbf: Option<u64>,
-}
-
-impl CloudflareAccessVerifier {
-    pub async fn from_env() -> anyhow::Result<Option<Self>> {
-        let Some(audience) = env_string("CLOUDFLARE_ACCESS_AUD") else {
-            return Ok(None);
+impl AppAuth {
+    pub fn from_env() -> anyhow::Result<Self> {
+        let username = env_string("APP_USERNAME").unwrap_or_else(|| "admin".to_string());
+        let password_hash = match env_string("APP_PASSWORD_SHA256") {
+            Some(value) => parse_password_hash(&value)?,
+            None => {
+                let password = env_string("APP_PASSWORD")
+                    .ok_or_else(|| anyhow!("APP_PASSWORD or APP_PASSWORD_SHA256 must be set"))?;
+                hash_password(&password)
+            }
         };
-        let Some(certs_url) = env_string("CLOUDFLARE_ACCESS_CERTS_URL") else {
-            return Err(anyhow!(
-                "CLOUDFLARE_ACCESS_AUD is set but CLOUDFLARE_ACCESS_CERTS_URL is missing"
-            ));
-        };
-
-        let issuer = env_string("CLOUDFLARE_ACCESS_ISSUER")
-            .unwrap_or_else(|| issuer_from_certs_url(&certs_url));
-        let keys = fetch_keys(&certs_url).await?;
-
-        info!(
-            key_count = keys.len(),
-            issuer, "Cloudflare Access JWT verification enabled"
+        let session_ttl = Duration::from_secs(
+            env::var("APP_SESSION_TTL_HOURS")
+                .ok()
+                .and_then(|value| value.parse::<u64>().ok())
+                .filter(|hours| *hours > 0)
+                .unwrap_or(24 * 30)
+                * 3600,
         );
 
-        Ok(Some(Self {
-            audience,
-            issuer,
-            keys,
-        }))
-    }
-
-    fn verify(&self, token: &str) -> anyhow::Result<()> {
-        let parts = token.split('.').collect::<Vec<_>>();
-        if parts.len() != 3 {
-            return Err(anyhow!("invalid JWT format"));
-        }
-
-        let header_bytes = decode_jwt_part(parts[0]).context("invalid JWT header encoding")?;
-        let header = serde_json::from_slice::<JwtHeader>(&header_bytes)
-            .context("invalid JWT header JSON")?;
-        if header.alg != "RS256" {
-            return Err(anyhow!("unsupported JWT algorithm"));
-        }
-
-        let key = self
-            .keys
-            .iter()
-            .find(|key| key.kid == header.kid)
-            .ok_or_else(|| anyhow!("unknown JWT key id"))?;
-
-        let signature_bytes =
-            decode_jwt_part(parts[2]).context("invalid JWT signature encoding")?;
-        let signing_input = format!("{}.{}", parts[0], parts[1]);
-        signature::RsaPublicKeyComponents {
-            n: &key.n,
-            e: &key.e,
-        }
-        .verify(
-            &signature::RSA_PKCS1_2048_8192_SHA256,
-            signing_input.as_bytes(),
-            &signature_bytes,
-        )
-        .map_err(|_| anyhow!("invalid JWT signature"))?;
-
-        let claims_bytes = decode_jwt_part(parts[1]).context("invalid JWT claims encoding")?;
-        let claims = serde_json::from_slice::<AccessClaims>(&claims_bytes)
-            .context("invalid JWT claims JSON")?;
-        validate_claims(&claims, &self.issuer, &self.audience)
-    }
-}
-
-pub async fn require_cloudflare_access(
-    State(verifier): State<Arc<CloudflareAccessVerifier>>,
-    request: Request<Body>,
-    next: Next,
-) -> Result<Response, StatusCode> {
-    if request.uri().path() == "/api/health" {
-        return Ok(next.run(request).await);
-    }
-
-    let token = request
-        .headers()
-        .get(ACCESS_JWT_HEADER)
-        .and_then(|header| header.to_str().ok());
-
-    match token {
-        Some(token) => match verifier.verify(token) {
-            Ok(()) => Ok(next.run(request).await),
-            Err(error) => {
-                warn!(error = %error, "Cloudflare Access JWT verification failed");
-                Err(StatusCode::UNAUTHORIZED)
-            }
-        },
-        None => {
-            warn!("missing Cloudflare Access JWT assertion header");
-            Err(StatusCode::UNAUTHORIZED)
-        }
-    }
-}
-
-async fn fetch_keys(certs_url: &str) -> anyhow::Result<Vec<JwkKey>> {
-    let jwks = reqwest::Client::new()
-        .get(certs_url)
-        .send()
-        .await
-        .context("failed to fetch Cloudflare Access certs")?
-        .error_for_status()
-        .context("Cloudflare Access certs endpoint returned an HTTP error")?
-        .json::<JwksResponse>()
-        .await
-        .context("failed to parse Cloudflare Access certs")?;
-
-    let keys = jwks
-        .keys
-        .into_iter()
-        .filter(|key| key.kty == "RSA" && key.alg.as_deref().is_none_or(|alg| alg == "RS256"))
-        .map(|key| {
-            Ok(JwkKey {
-                kid: key.kid,
-                n: decode_jwt_part(&key.n).context("invalid JWK modulus")?,
-                e: decode_jwt_part(&key.e).context("invalid JWK exponent")?,
-            })
+        Ok(Self {
+            username,
+            password_hash,
+            sessions: Arc::new(Mutex::new(HashMap::new())),
+            session_ttl,
         })
-        .collect::<anyhow::Result<Vec<_>>>()?;
-
-    if keys.is_empty() {
-        return Err(anyhow!("Cloudflare Access certs did not contain RSA keys"));
     }
 
-    Ok(keys)
-}
-
-fn validate_claims(claims: &AccessClaims, issuer: &str, audience: &str) -> anyhow::Result<()> {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .context("system time is before UNIX epoch")?
-        .as_secs();
-
-    if normalize_issuer(&claims.iss) != normalize_issuer(issuer) {
-        return Err(anyhow!("invalid issuer"));
-    }
-    if !audience_matches(&claims.aud, audience) {
-        return Err(anyhow!("invalid audience"));
-    }
-    if claims.exp <= now {
-        return Err(anyhow!("JWT has expired"));
-    }
-    if let Some(nbf) = claims.nbf {
-        if nbf > now {
-            return Err(anyhow!("JWT is not valid yet"));
+    pub async fn login(&self, username: &str, password: &str) -> Option<AuthSession> {
+        if username != self.username || !password_matches(&self.password_hash, password) {
+            warn!(username, "failed login attempt");
+            return None;
         }
+
+        let token = generate_token();
+        let expires_at = now_unix() + self.session_ttl.as_secs();
+        self.sessions.lock().await.insert(
+            token.clone(),
+            Session {
+                username: self.username.clone(),
+                expires_at,
+            },
+        );
+
+        Some(AuthSession {
+            username: self.username.clone(),
+            token,
+            expires_at,
+        })
     }
 
-    Ok(())
-}
+    pub async fn logout(&self, token: &str) {
+        self.sessions.lock().await.remove(token);
+    }
 
-fn audience_matches(value: &Value, expected: &str) -> bool {
-    match value {
-        Value::String(audience) => audience == expected,
-        Value::Array(audiences) => audiences
-            .iter()
-            .any(|audience| audience.as_str() == Some(expected)),
-        _ => false,
+    pub async fn authenticate(&self, token: &str) -> Option<AuthUser> {
+        let now = now_unix();
+        let mut sessions = self.sessions.lock().await;
+        sessions.retain(|_, session| session.expires_at > now);
+        sessions.get(token).map(|session| AuthUser {
+            username: session.username.clone(),
+        })
     }
 }
 
-fn decode_jwt_part(value: &str) -> anyhow::Result<Vec<u8>> {
-    Ok(URL_SAFE_NO_PAD.decode(value)?)
+pub async fn require_app_session(
+    State(auth): State<AppAuth>,
+    mut request: Request<Body>,
+    next: Next,
+) -> Response {
+    let path = request.uri().path();
+    if path == "/api/health" || path == "/api/auth/login" {
+        return next.run(request).await;
+    }
+
+    let Some(token) = request_token(&request) else {
+        return unauthorized_response();
+    };
+
+    let Some(user) = auth.authenticate(&token).await else {
+        return unauthorized_response();
+    };
+
+    request.extensions_mut().insert(user);
+    next.run(request).await
+}
+
+pub fn bearer_token(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn request_token(request: &Request<Body>) -> Option<String> {
+    bearer_token(request.headers())
+        .map(str::to_string)
+        .or_else(|| access_token_query(request.uri().query()))
+}
+
+fn access_token_query(query: Option<&str>) -> Option<String> {
+    query?
+        .split('&')
+        .filter_map(|pair| pair.split_once('='))
+        .find_map(|(key, value)| {
+            (key == "access_token" && !value.is_empty()).then(|| value.to_string())
+        })
+}
+
+fn unauthorized_response() -> Response {
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(json!({"ok": false, "error": "unauthorized"})),
+    )
+        .into_response()
+}
+
+fn hash_password(password: &str) -> [u8; 32] {
+    let digest = digest::digest(&digest::SHA256, password.as_bytes());
+    let mut hash = [0_u8; 32];
+    hash.copy_from_slice(digest.as_ref());
+    hash
+}
+
+fn password_matches(expected_hash: &[u8; 32], password: &str) -> bool {
+    let submitted_hash = hash_password(password);
+    expected_hash
+        .iter()
+        .zip(submitted_hash.iter())
+        .fold(0_u8, |diff, (left, right)| diff | (left ^ right))
+        == 0
+}
+
+fn parse_password_hash(value: &str) -> anyhow::Result<[u8; 32]> {
+    let bytes = hex::decode(value).context("APP_PASSWORD_SHA256 must be hex encoded")?;
+    if bytes.len() != 32 {
+        return Err(anyhow!("APP_PASSWORD_SHA256 must be a SHA-256 hash"));
+    }
+    let mut hash = [0_u8; 32];
+    hash.copy_from_slice(&bytes);
+    Ok(hash)
+}
+
+fn generate_token() -> String {
+    let mut bytes = [0_u8; 32];
+    rand::thread_rng().fill_bytes(&mut bytes);
+    URL_SAFE_NO_PAD.encode(bytes)
+}
+
+fn now_unix() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }
 
 fn env_string(key: &str) -> Option<String> {
@@ -235,36 +213,38 @@ fn env_string(key: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-fn issuer_from_certs_url(certs_url: &str) -> String {
-    certs_url
-        .split("/cdn-cgi/access/certs")
-        .next()
-        .unwrap_or(certs_url)
-        .trim_end_matches('/')
-        .to_string()
-}
-
-fn normalize_issuer(value: &str) -> &str {
-    value.trim_end_matches('/')
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
 
-    #[test]
-    fn audience_can_be_string_or_array() {
-        assert!(audience_matches(&json!("aud-1"), "aud-1"));
-        assert!(audience_matches(&json!(["aud-0", "aud-1"]), "aud-1"));
-        assert!(!audience_matches(&json!(["aud-0"]), "aud-1"));
+    #[tokio::test]
+    async fn login_issues_and_revokes_session_token() {
+        let auth = AppAuth {
+            username: "admin".to_string(),
+            password_hash: hash_password("secret"),
+            sessions: Arc::new(Mutex::new(HashMap::new())),
+            session_ttl: Duration::from_secs(60),
+        };
+
+        assert!(auth.login("admin", "wrong").await.is_none());
+
+        let session = auth.login("admin", "secret").await.unwrap();
+        assert_eq!(
+            auth.authenticate(&session.token).await.unwrap().username,
+            "admin"
+        );
+
+        auth.logout(&session.token).await;
+        assert!(auth.authenticate(&session.token).await.is_none());
     }
 
     #[test]
-    fn issuer_is_derived_from_certs_url() {
-        assert_eq!(
-            issuer_from_certs_url("https://team.cloudflareaccess.com/cdn-cgi/access/certs"),
-            "https://team.cloudflareaccess.com"
-        );
+    fn password_hash_can_be_configured_as_sha256_hex() {
+        let hash =
+            parse_password_hash("2bb80d537b1da3e38bd30361aa855686bde0eacd7162fef6a25fe97bf527a25b")
+                .unwrap();
+
+        assert!(password_matches(&hash, "secret"));
+        assert!(!password_matches(&hash, "not-secret"));
     }
 }

@@ -7,7 +7,7 @@ mod utils;
 use std::{collections::HashSet, env, net::SocketAddr, sync::Arc, time::Duration};
 
 use axum::{
-    http::{header, HeaderName, HeaderValue, Method},
+    http::{header, HeaderValue, Method},
     middleware,
     routing::{get, post},
     Router,
@@ -93,6 +93,7 @@ async fn run() -> anyhow::Result<()> {
     let pool = connect_sqlite_pool(&database_url).await?;
     migrate(&pool).await?;
     let sync = SyncService::new();
+    let auth = auth::AppAuth::from_env()?;
     let normalized_artist_credits = sync.normalize_artist_credits(&pool).await?;
     if normalized_artist_credits > 0 {
         info!(
@@ -102,6 +103,7 @@ async fn run() -> anyhow::Result<()> {
     }
 
     let state = Arc::new(AppState {
+        auth,
         pool: pool.clone(),
         sync,
         sync_jobs: Arc::new(tokio::sync::Mutex::new(HashSet::new())),
@@ -111,8 +113,11 @@ async fn run() -> anyhow::Result<()> {
         settings: SettingsService,
     });
 
-    let mut app = Router::new()
+    let app = Router::new()
         .route("/api/health", get(api::handlers::health))
+        .route("/api/auth/login", post(api::handlers::login))
+        .route("/api/auth/logout", post(api::handlers::logout))
+        .route("/api/auth/me", get(api::handlers::me))
         .route(
             "/api/settings",
             get(api::handlers::get_settings).post(api::handlers::save_settings),
@@ -181,14 +186,11 @@ async fn run() -> anyhow::Result<()> {
             "/api/artist-image/:artist_id",
             get(api::handlers::artist_image),
         )
-        .route("/api/cover/:cover_art_id", get(api::handlers::cover));
-
-    if let Some(verifier) = auth::CloudflareAccessVerifier::from_env().await? {
-        app = app.layer(middleware::from_fn_with_state(
-            Arc::new(verifier),
-            auth::require_cloudflare_access,
+        .route("/api/cover/:cover_art_id", get(api::handlers::cover))
+        .layer(middleware::from_fn_with_state(
+            state.auth.clone(),
+            auth::require_app_session,
         ));
-    }
 
     let app = app
         .layer(TraceLayer::new_for_http())
@@ -215,12 +217,7 @@ fn cors_layer() -> CorsLayer {
             Method::DELETE,
             Method::OPTIONS,
         ])
-        .allow_headers([
-            header::AUTHORIZATION,
-            header::CONTENT_TYPE,
-            header::RANGE,
-            HeaderName::from_static("cf-access-jwt-assertion"),
-        ])
+        .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE, header::RANGE])
         .expose_headers([
             header::ACCEPT_RANGES,
             header::CONTENT_LENGTH,

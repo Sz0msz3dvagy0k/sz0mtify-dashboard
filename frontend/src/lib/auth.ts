@@ -1,0 +1,52 @@
+import { browser } from '$app/environment';
+import { writable } from 'svelte/store';
+import type { AuthSession } from '$lib/types';
+
+const STORAGE_KEY = 'music-dashboard.auth';
+
+let currentSession: AuthSession | null = null;
+export const authSession = writable<AuthSession | null>(null);
+
+authSession.subscribe((value) => {
+	currentSession = value;
+});
+
+export function loadStoredSession(): AuthSession | null {
+	if (!browser) return null;
+
+	try {
+		const raw = localStorage.getItem(STORAGE_KEY);
+		if (!raw) return null;
+		const session = JSON.parse(raw) as AuthSession;
+		if (!session.token || session.expires_at <= Math.floor(Date.now() / 1000)) {
+			clearAuthSession();
+			return null;
+		}
+		authSession.set(session);
+		return session;
+	} catch {
+		clearAuthSession();
+		return null;
+	}
+}
+
+export function saveAuthSession(session: AuthSession) {
+	authSession.set(session);
+	if (browser) localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+}
+
+export function clearAuthSession() {
+	authSession.set(null);
+	if (browser) localStorage.removeItem(STORAGE_KEY);
+}
+
+export function getAuthToken(): string | null {
+	return currentSession?.token ?? loadStoredSession()?.token ?? null;
+}
+
+export function withAccessToken(url: string): string {
+	const token = getAuthToken();
+	if (!token) return url;
+	const separator = url.includes('?') ? '&' : '?';
+	return `${url}${separator}access_token=${encodeURIComponent(token)}`;
+}

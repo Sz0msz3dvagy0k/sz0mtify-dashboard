@@ -9,8 +9,11 @@ use std::{collections::HashSet, sync::Arc};
 
 use tokio::sync::Mutex;
 
+use crate::auth::AppAuth;
+
 #[derive(Clone)]
 pub struct AppState {
+    pub auth: AppAuth,
     pub pool: sqlx::SqlitePool,
     pub sync: sync::SyncService,
     pub sync_jobs: Arc<Mutex<HashSet<String>>>,

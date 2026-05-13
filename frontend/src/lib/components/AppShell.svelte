@@ -11,6 +11,7 @@
 		HeartPulse,
 		Library,
 		ListMusic,
+		LogOut,
 		Radio,
 		Search,
 		Settings,
@@ -18,8 +19,10 @@
 		UsersRound
 	} from 'lucide-svelte';
 	import { api } from '$lib/api';
-	import type { PlaylistSummary, SyncStatus } from '$lib/types';
+	import { clearAuthSession, loadStoredSession } from '$lib/auth';
+	import type { AuthSession, PlaylistSummary, SyncStatus } from '$lib/types';
 	import { onMount } from 'svelte';
+	import LoginPage from './LoginPage.svelte';
 	import PlayerBar from './PlayerBar.svelte';
 
 	const nav = [
@@ -39,58 +42,110 @@
 
 	let status: SyncStatus = [];
 	let playlists: PlaylistSummary[] = [];
+	let authChecked = false;
+	let authenticated = false;
+	let accountName = '';
 	$: current = nav.find((item) => $page.url.pathname.startsWith(item.href)) ?? nav[0];
 	$: subtitle = status.length ? status.map((row) => `${row[1]} ${row[3]}`).join(' · ') : 'Backend status pending';
 
 	onMount(async () => {
+		const session = loadStoredSession();
+		if (!session) {
+			authChecked = true;
+			return;
+		}
+
+		try {
+			const user = await api.me();
+			accountName = user.username;
+			authenticated = true;
+			await loadShellData();
+		} catch {
+			clearAuthSession();
+		} finally {
+			authChecked = true;
+		}
+	});
+
+	async function loadShellData() {
 		[status, playlists] = await Promise.all([
 			api.syncStatus().catch(() => []),
 			api.playlists().catch(() => [])
 		]);
-	});
+	}
+
+	async function handleAuthenticated(session: AuthSession) {
+		accountName = session.username;
+		authenticated = true;
+		await loadShellData();
+	}
+
+	async function signOut() {
+		await api.logout().catch(() => null);
+		clearAuthSession();
+		status = [];
+		playlists = [];
+		authenticated = false;
+		accountName = '';
+	}
 </script>
 
 <svelte:head>
-	<title>{current.label} · Archive</title>
+	<title>{authenticated ? `${current.label} · Archive` : 'Sign in · Archive'}</title>
 </svelte:head>
 
-<div class="app-shell">
-	<aside class="sidebar">
-		<a class="brand" href="/overview">
-			<Disc3 size={28} strokeWidth={1.4} />
-			<span>Archive</span>
-		</a>
-		<nav>
-			{#each nav as item}
-				<a class:active={$page.url.pathname.startsWith(item.href)} href={item.href}>
-					<svelte:component this={item.icon} size={18} strokeWidth={1.5} />
-					<span>{item.label}</span>
-				</a>
-			{/each}
-		</nav>
-		{#if playlists.length}
-			<div class="sidebar-section">
-				<span>Playlists</span>
-				{#each playlists.slice(0, 8) as playlist}
-					<a class:active={$page.url.pathname === `/playlists/${encodeURIComponent(playlist.id)}`} href={`/playlists/${encodeURIComponent(playlist.id)}`}>{playlist.name}</a>
+{#if !authChecked}
+	<main class="login-page">
+		<section class="login-panel">
+			<div class="skeleton block"></div>
+		</section>
+	</main>
+{:else if !authenticated}
+	<LoginPage onAuthenticated={handleAuthenticated} />
+{:else}
+	<div class="app-shell">
+		<aside class="sidebar">
+			<a class="brand" href="/overview">
+				<Disc3 size={28} strokeWidth={1.4} />
+				<span>Archive</span>
+			</a>
+			<nav>
+				{#each nav as item}
+					<a class:active={$page.url.pathname.startsWith(item.href)} href={item.href}>
+						<svelte:component this={item.icon} size={18} strokeWidth={1.5} />
+						<span>{item.label}</span>
+					</a>
 				{/each}
-			</div>
-		{/if}
-	</aside>
-	<div class="main-column">
-		<header class="topbar">
-			<div>
-				<p>Music analytics</p>
-				<h1>{current.label}</h1>
-			</div>
-			<div class="status-pill">
-				<Activity size={16} strokeWidth={1.5} />
-				<span>{subtitle}</span>
-			</div>
-		</header>
-		<main class="page-surface">
-			<slot />
-		</main>
+			</nav>
+			{#if playlists.length}
+				<div class="sidebar-section">
+					<span>Playlists</span>
+					{#each playlists.slice(0, 8) as playlist}
+						<a class:active={$page.url.pathname === `/playlists/${encodeURIComponent(playlist.id)}`} href={`/playlists/${encodeURIComponent(playlist.id)}`}>{playlist.name}</a>
+					{/each}
+				</div>
+			{/if}
+		</aside>
+		<div class="main-column">
+			<header class="topbar">
+				<div>
+					<p>Music analytics</p>
+					<h1>{current.label}</h1>
+				</div>
+				<div class="topbar-actions">
+					<div class="status-pill">
+						<Activity size={16} strokeWidth={1.5} />
+						<span>{subtitle}</span>
+					</div>
+					<button class="icon-button" aria-label={`Sign out ${accountName}`} title={`Signed in as ${accountName}`} on:click={signOut}>
+						<LogOut size={18} strokeWidth={1.5} />
+					</button>
+				</div>
+			</header>
+			<main class="page-surface">
+				<slot />
+			</main>
+		</div>
+		<PlayerBar />
 	</div>
-	<PlayerBar />
-</div>
+{/if}

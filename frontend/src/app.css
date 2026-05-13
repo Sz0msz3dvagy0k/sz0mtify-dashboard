@@ -94,6 +94,7 @@ button { cursor: pointer; }
 	overflow: hidden;
 	text-overflow: ellipsis;
 }
+.topbar-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; min-width: 0; }
 .page-surface { padding: 28px 32px 136px; animation: page-in .32s ease both; }
 @keyframes page-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 
@@ -264,6 +265,64 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 .skeleton.line { height: 12px; width: 80%; }
 @keyframes shimmer { to { transform: translateX(100%); } }
 
+.login-page {
+	min-height: 100vh;
+	display: grid;
+	place-items: center;
+	padding: 24px;
+	background:
+		linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px) 0 0 / 44px 44px,
+		linear-gradient(0deg, rgba(255,255,255,.025) 1px, transparent 1px) 0 0 / 44px 44px,
+		#050505;
+}
+.login-panel {
+	width: min(420px, 100%);
+	border: 1px solid #262626;
+	border-radius: 8px;
+	background: rgba(10,10,10,.94);
+	padding: 22px;
+	box-shadow: 0 24px 80px rgba(0,0,0,.42);
+}
+.login-brand { display: flex; align-items: center; gap: 14px; margin-bottom: 28px; }
+.login-mark {
+	width: 52px;
+	height: 52px;
+	display: grid;
+	place-items: center;
+	border: 1px solid #404040;
+	border-radius: 8px;
+	background: #101010;
+}
+.login-brand p { margin: 0 0 4px; color: #737373; text-transform: uppercase; font-size: 12px; letter-spacing: .16em; }
+.login-brand h1 { margin: 0; font-size: 32px; line-height: 1; }
+.login-form { display: grid; gap: 14px; }
+.login-form label { display: grid; gap: 7px; color: #a3a3a3; font-size: 12px; text-transform: uppercase; letter-spacing: .14em; }
+.login-input {
+	min-height: 46px;
+	display: grid;
+	grid-template-columns: 20px minmax(0, 1fr);
+	align-items: center;
+	gap: 10px;
+	padding: 0 12px;
+	border: 1px solid #333;
+	border-radius: 6px;
+	background: #0a0a0a;
+	color: #a3a3a3;
+}
+.login-input:focus-within { border-color: #737373; background: #101010; }
+.login-input input {
+	width: 100%;
+	min-width: 0;
+	border: 0;
+	outline: 0;
+	background: transparent;
+	color: #f5f5f5;
+}
+.login-error { margin: 0; color: #f5f5f5; font-size: 13px; }
+.login-submit { width: 100%; display: inline-flex; justify-content: center; align-items: center; gap: 8px; margin-top: 4px; }
+.spin { animation: spin .9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
 .progress { height: 8px; background: #181818; border: 1px solid #333; border-radius: 999px; overflow: hidden; }
 .progress span { display: block; height: 100%; background: #f5f5f5; }
 .mini-stats { display: flex; gap: 18px; margin-top: 16px; color: #a3a3a3; }
@@ -355,6 +414,7 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 	.hero-grid, .dashboard-grid, .split-grid, .album-strip, .detail-hero { grid-template-columns: 1fr; }
 	.album-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 	.status-pill { max-width: 100%; }
+	.topbar-actions { width: 100%; justify-content: space-between; }
 	.player-bar { left: 12px; right: 12px; bottom: 12px; grid-template-columns: 1fr; }
 	.player-actions { justify-content: space-between; }
 }

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use axum::{
     body::{Body, Bytes},
-    extract::{Path, Query, State},
+    extract::{Extension, Path, Query, State},
     http::{
         header::{
             ACCEPT_RANGES, CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE,
@@ -17,6 +17,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use tracing::{error, info, warn};
 
+use crate::auth::{bearer_token, AuthUser};
 use crate::services::discovery::{DiscoveryListOptions, DiscoveryRefreshOptions};
 use crate::services::{sync::SubsonicConfig, AppState};
 
@@ -37,6 +38,12 @@ pub struct DiscoveryRefreshQ {
     pub limit: Option<i64>,
 }
 
+#[derive(Deserialize)]
+pub struct LoginPayload {
+    pub username: String,
+    pub password: String,
+}
+
 fn ok(data: Value) -> Json<Value> {
     Json(json!({"ok": true, "data": data}))
 }
@@ -48,6 +55,28 @@ fn err(message: &str) -> Json<Value> {
 pub async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
     let db_ok = sqlx::query("SELECT 1").execute(&state.pool).await.is_ok();
     Json(json!({"ok": db_ok, "status": if db_ok { "ok" } else { "degraded" }}))
+}
+
+pub async fn login(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<LoginPayload>,
+) -> impl IntoResponse {
+    match state.auth.login(&payload.username, &payload.password).await {
+        Some(session) => (StatusCode::OK, ok(json!(session))),
+        None => (StatusCode::UNAUTHORIZED, err("invalid_credentials")),
+    }
+}
+
+pub async fn logout(State(state): State<Arc<AppState>>, headers: HeaderMap) -> impl IntoResponse {
+    if let Some(token) = bearer_token(&headers) {
+        state.auth.logout(token).await;
+    }
+
+    ok(json!({"status": "signed_out"}))
+}
+
+pub async fn me(Extension(user): Extension<AuthUser>) -> Json<Value> {
+    ok(json!({"username": user.username}))
 }
 
 pub async fn get_settings(State(state): State<Arc<AppState>>) -> Json<Value> {

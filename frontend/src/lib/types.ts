@@ -1,5 +1,15 @@
 export type ApiEnvelope<T> = { ok: true; data: T } | { ok: false; error: string };
 
+export type AuthSession = {
+	username: string;
+	token: string;
+	expires_at: number;
+};
+
+export type AuthUser = {
+	username: string;
+};
+
 export type Overview = {
 	total_tracks: number;
 	total_albums: number;
