@@ -10,6 +10,7 @@
 		HardDrive,
 		HeartPulse,
 		Library,
+		ListMusic,
 		Radio,
 		Search,
 		Settings,
@@ -17,13 +18,15 @@
 		UsersRound
 	} from 'lucide-svelte';
 	import { api } from '$lib/api';
-	import type { SyncStatus } from '$lib/types';
+	import type { PlaylistSummary, SyncStatus } from '$lib/types';
 	import { onMount } from 'svelte';
+	import PlayerBar from './PlayerBar.svelte';
 
 	const nav = [
 		{ href: '/overview', label: 'Overview', icon: BarChart3 },
 		{ href: '/albums', label: 'Albums', icon: Album },
 		{ href: '/artists', label: 'Artists', icon: UsersRound },
+		{ href: '/playlists', label: 'Playlists', icon: ListMusic },
 		{ href: '/genres', label: 'Genres & Moods', icon: Tags },
 		{ href: '/audio-quality', label: 'Audio Quality', icon: AudioLines },
 		{ href: '/storage', label: 'Storage', icon: HardDrive },
@@ -35,11 +38,15 @@
 	];
 
 	let status: SyncStatus = [];
+	let playlists: PlaylistSummary[] = [];
 	$: current = nav.find((item) => $page.url.pathname.startsWith(item.href)) ?? nav[0];
 	$: subtitle = status.length ? status.map((row) => `${row[1]} ${row[3]}`).join(' · ') : 'Backend status pending';
 
 	onMount(async () => {
-		status = await api.syncStatus().catch(() => []);
+		[status, playlists] = await Promise.all([
+			api.syncStatus().catch(() => []),
+			api.playlists().catch(() => [])
+		]);
 	});
 </script>
 
@@ -61,6 +68,14 @@
 				</a>
 			{/each}
 		</nav>
+		{#if playlists.length}
+			<div class="sidebar-section">
+				<span>Playlists</span>
+				{#each playlists.slice(0, 8) as playlist}
+					<a class:active={$page.url.pathname === `/playlists/${encodeURIComponent(playlist.id)}`} href={`/playlists/${encodeURIComponent(playlist.id)}`}>{playlist.name}</a>
+				{/each}
+			</div>
+		{/if}
 	</aside>
 	<div class="main-column">
 		<header class="topbar">
@@ -77,4 +92,5 @@
 			<slot />
 		</main>
 	</div>
+	<PlayerBar />
 </div>

@@ -3,12 +3,12 @@
 	import { onDestroy, onMount } from 'svelte';
 	import { api } from '$lib/api';
 	import type { AlbumDetail, ArtistTuple } from '$lib/types';
-	import DataTable from '$lib/components/DataTable.svelte';
 	import EmptyState from '$lib/components/EmptyState.svelte';
 	import ErrorState from '$lib/components/ErrorState.svelte';
 	import ImageWithFallback from '$lib/components/ImageWithFallback.svelte';
 	import StatCard from '$lib/components/StatCard.svelte';
 	import { coverUrl, formatNumber } from '$lib/format';
+	import { playQueue, type QueueTrack } from '$lib/player';
 
 	let detail: AlbumDetail;
 	let artists: ArtistTuple[] = [];
@@ -44,6 +44,23 @@
 			highlightTimer = null;
 		}, 1200);
 	}
+
+	function queue(): QueueTrack[] {
+		if (!album) return [];
+		return detail.tracks.map((track) => ({
+			id: track[0],
+			title: track[1],
+			artist: artistName,
+			album: album[1],
+			albumId: album[0],
+			coverArtId: album[6],
+			duration: null
+		}));
+	}
+
+	function play(startIndex = 0) {
+		playQueue(queue(), startIndex);
+	}
 </script>
 
 {#if loading}
@@ -65,12 +82,24 @@
 				<StatCard label="Genre" value={album[4] ?? '—'} />
 				<StatCard label="Tracks" value={formatNumber(detail.tracks.length)} />
 			</div>
+			<button class="button" on:click={() => play(0)} disabled={!detail.tracks.length}>Play Album</button>
 		</div>
 	</section>
-	<DataTable
-		columns={['#', 'Track', 'Disc']}
-		rows={detail.tracks.map((track) => [track[2] ?? '—', track[1], track[3] ?? 1])}
-		rowKeys={detail.tracks.map((track) => track[0])}
-		highlightedRowKey={highlightedTrackId}
-	/>
+	<div class="table-wrap">
+		<table>
+			<thead>
+				<tr><th></th><th>#</th><th>Track</th><th>Disc</th></tr>
+			</thead>
+			<tbody>
+				{#each detail.tracks as track, index}
+					<tr class:highlight-row={track[0] === highlightedTrackId}>
+						<td><button class="icon-button" aria-label={`Play ${track[1]}`} on:click={() => play(index)}>▶</button></td>
+						<td>{track[2] ?? '—'}</td>
+						<td>{track[1]}</td>
+						<td>{track[3] ?? 1}</td>
+					</tr>
+				{/each}
+			</tbody>
+		</table>
+	</div>
 {/if}

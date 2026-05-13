@@ -255,6 +255,32 @@ pub async fn artist_by_id(State(state): State<Arc<AppState>>, Path(id): Path<i64
 pub async fn genres(State(state): State<Arc<AppState>>) -> Json<Value> {
     respond_service!(state.analytics.genres(&state.pool), "failed_to_load_genres")
 }
+pub async fn playlists(State(state): State<Arc<AppState>>) -> Json<Value> {
+    match fetch_subsonic_playlists(&state.pool).await {
+        Ok(playlists) => ok(playlists),
+        Err(error) => {
+            warn!(error = %error, "failed to load playlists");
+            err("failed_to_load_playlists")
+        }
+    }
+}
+pub async fn playlist_by_id(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Json<Value> {
+    if !is_valid_subsonic_id(&id) {
+        return err("invalid_playlist_id");
+    }
+
+    match fetch_subsonic_playlist(&state.pool, &id).await {
+        Ok(playlist) => ok(playlist),
+        Err(error) if error.to_string().contains("not found") => err("playlist_not_found"),
+        Err(error) => {
+            warn!(playlist_id = id, error = %error, "failed to load playlist");
+            err("failed_to_load_playlist")
+        }
+    }
+}
 pub async fn audio_quality(State(state): State<Arc<AppState>>) -> Json<Value> {
     respond_service!(
         state.analytics.audio_quality(&state.pool),
@@ -489,6 +515,112 @@ fn is_valid_cover_art_id(cover_art_id: &str) -> bool {
         && cover_art_id
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+}
+
+fn is_valid_subsonic_id(id: &str) -> bool {
+    !id.trim().is_empty()
+        && id.len() <= 256
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ':' | '~'))
+}
+
+async fn fetch_subsonic_playlists(pool: &sqlx::SqlitePool) -> anyhow::Result<Value> {
+    let response = subsonic_json(pool, "getPlaylists", &[]).await?;
+    let playlists = value_list(response["subsonic-response"]["playlists"].get("playlist"))
+        .into_iter()
+        .map(|playlist| {
+            json!({
+                "id": playlist["id"].as_str().unwrap_or_default(),
+                "name": playlist["name"].as_str().unwrap_or("Untitled Playlist"),
+                "song_count": playlist["songCount"].as_i64().or_else(|| playlist["entryCount"].as_i64()).unwrap_or(0),
+                "duration_seconds": playlist["duration"].as_i64().unwrap_or(0),
+                "cover_art_id": playlist["coverArt"].as_str()
+            })
+        })
+        .collect::<Vec<_>>();
+    Ok(json!(playlists))
+}
+
+async fn fetch_subsonic_playlist(pool: &sqlx::SqlitePool, id: &str) -> anyhow::Result<Value> {
+    let response = subsonic_json(pool, "getPlaylist", &[("id", id.to_string())]).await?;
+    let playlist = &response["subsonic-response"]["playlist"];
+    if playlist.is_null() {
+        anyhow::bail!("playlist not found");
+    }
+
+    let mut tracks = Vec::new();
+    for entry in value_list(playlist.get("entry")) {
+        let subsonic_id = entry["id"].as_str().unwrap_or_default();
+        let local = sqlx::query_as::<_, (i64, Option<i64>, Option<String>, Option<i64>)>(
+            "SELECT id, album_id, genre, duration_seconds FROM tracks WHERE subsonic_id = ? LIMIT 1",
+        )
+        .bind(subsonic_id)
+        .fetch_optional(pool)
+        .await?;
+        let Some((track_id, album_id, genre, duration_seconds)) = local else {
+            continue;
+        };
+        tracks.push(json!([
+            track_id,
+            entry["title"].as_str().unwrap_or("Unknown Track"),
+            entry["artist"].as_str(),
+            album_id,
+            entry["album"].as_str(),
+            entry["coverArt"].as_str(),
+            duration_seconds.or_else(|| entry["duration"].as_i64()),
+            genre.or_else(|| entry["genre"].as_str().map(ToString::to_string))
+        ]));
+    }
+
+    Ok(json!({
+        "playlist": {
+            "id": playlist["id"].as_str().unwrap_or(id),
+            "name": playlist["name"].as_str().unwrap_or("Untitled Playlist"),
+            "song_count": playlist["songCount"].as_i64().or_else(|| playlist["entryCount"].as_i64()).unwrap_or(tracks.len() as i64),
+            "duration_seconds": playlist["duration"].as_i64().unwrap_or(0),
+            "cover_art_id": playlist["coverArt"].as_str()
+        },
+        "tracks": tracks
+    }))
+}
+
+async fn subsonic_json(
+    pool: &sqlx::SqlitePool,
+    endpoint: &str,
+    params: &[(&str, String)],
+) -> anyhow::Result<Value> {
+    let cfg = SubsonicConfig::load(pool).await?;
+    let url = format!("{}/rest/{endpoint}", cfg.base_url.trim_end_matches('/'));
+    let mut query = crate::services::sync::subsonic_auth_query(&cfg);
+    query.extend(
+        params
+            .iter()
+            .map(|(key, value)| ((*key).to_string(), value.clone())),
+    );
+
+    let response = reqwest::Client::new().get(url).query(&query).send().await?;
+    let status = response.status();
+    let body = response.text().await?;
+    if !status.is_success() {
+        anyhow::bail!("Subsonic {endpoint} returned HTTP {status}");
+    }
+    let value = serde_json::from_str::<Value>(&body)?;
+    if value["subsonic-response"]["status"].as_str() == Some("failed") {
+        let message = value["subsonic-response"]["error"]["message"]
+            .as_str()
+            .unwrap_or("Subsonic returned an error");
+        anyhow::bail!("Subsonic {endpoint} failed: {message}");
+    }
+    Ok(value)
+}
+
+fn value_list(value: Option<&Value>) -> Vec<Value> {
+    match value {
+        Some(Value::Array(values)) => values.clone(),
+        Some(value) if !value.is_null() => vec![value.clone()],
+        _ => Vec::new(),
+    }
 }
 
 enum TrackStreamError {

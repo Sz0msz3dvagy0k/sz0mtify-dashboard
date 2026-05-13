@@ -110,4 +110,28 @@ export type SearchResult = {
 	artists: [number, string][];
 };
 
+export type PlaylistSummary = {
+	id: string;
+	name: string;
+	song_count: number;
+	duration_seconds: number;
+	cover_art_id: string | null;
+};
+
+export type PlaylistTrack = [
+	number,
+	string,
+	string | null,
+	number | null,
+	string | null,
+	string | null,
+	number | null,
+	string | null
+];
+
+export type PlaylistDetail = {
+	playlist: PlaylistSummary;
+	tracks: PlaylistTrack[];
+};
+
 export type SyncStatus = [number, string, string, string, string][];

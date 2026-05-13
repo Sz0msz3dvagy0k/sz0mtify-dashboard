@@ -127,6 +127,8 @@ async fn run() -> anyhow::Result<()> {
         .route("/api/library/artists", get(api::handlers::artists))
         .route("/api/library/artists/:id", get(api::handlers::artist_by_id))
         .route("/api/library/genres", get(api::handlers::genres))
+        .route("/api/playlists", get(api::handlers::playlists))
+        .route("/api/playlists/:id", get(api::handlers::playlist_by_id))
         .route(
             "/api/stats/audio-quality",
             get(api::handlers::audio_quality),
