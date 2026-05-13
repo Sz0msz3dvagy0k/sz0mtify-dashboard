@@ -58,7 +58,22 @@
 			}}
 			height={340}
 		/>
-		<DataTable columns={['Genre', 'Tracks', 'Albums', 'Artists']} rows={genreRows} cellLinks={genreLinks} />
+		{#if selectedGenre}
+			<div class="health-panel">
+				<SectionHeader title={selectedGenre} eyebrow={`${selectedGenreTracks.length} songs`} />
+				{#if selectedGenreTracks.length}
+					<div class="panel-list">
+						{#each selectedGenreTracks as track}
+							<TrackRow title={track[1]} detail={track[5] ?? ''} duration={track[4]} href={albumTrackHref(track[0], track[3])} />
+						{/each}
+					</div>
+				{:else}
+					<EmptyState title="No songs found" />
+				{/if}
+			</div>
+		{:else}
+			<DataTable columns={['Genre', 'Tracks', 'Albums', 'Artists']} rows={genreRows} cellLinks={genreLinks} />
+		{/if}
 	</section>
 	<SectionHeader title="Genre Tags" eyebrow="library taxonomy" />
 	<div class="badge-cloud">
@@ -68,17 +83,5 @@
 			</a>
 		{/each}
 	</div>
-	{#if selectedGenre}
-		<SectionHeader title={selectedGenre} eyebrow={`${selectedGenreTracks.length} songs`} />
-		{#if selectedGenreTracks.length}
-			<div class="panel-list">
-				{#each selectedGenreTracks as track}
-					<TrackRow title={track[1]} detail={track[5] ?? ''} duration={track[4]} href={albumTrackHref(track[0], track[3])} />
-				{/each}
-			</div>
-		{:else}
-			<EmptyState title="No songs found" />
-		{/if}
-	{/if}
 	<EmptyState title="No mood tags found" detail="Mood analysis will appear when tracks include mood metadata." />
 {/if}
