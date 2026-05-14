@@ -165,9 +165,13 @@ export function recordSongHistory(track: QueueTrack) {
 		const playedAt = new Date().toISOString();
 		const previous = entries[0];
 		if (previous?.id === track.id && Date.now() - new Date(previous.playedAt).getTime() < 30_000) {
+			if (!previous.coverArtId && track.coverArtId) {
+				return [{ ...previous, coverArtId: track.coverArtId }, ...entries.slice(1)];
+			}
 			return entries;
 		}
-		return [{ ...track, playedAt }, ...entries].slice(0, maxHistoryEntries);
+		const coverArtId = track.coverArtId ?? entries.find((entry) => entry.id === track.id)?.coverArtId ?? null;
+		return [{ ...track, coverArtId, playedAt }, ...entries].slice(0, maxHistoryEntries);
 	});
 }
 

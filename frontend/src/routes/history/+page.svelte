@@ -2,10 +2,14 @@
 	import EmptyState from '$lib/components/EmptyState.svelte';
 	import ImageWithFallback from '$lib/components/ImageWithFallback.svelte';
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
+	import { api } from '$lib/api';
 	import { formatDuration } from '$lib/format';
 	import { playQueue, queueTrackImage, songHistory, type SongHistoryEntry } from '$lib/player';
 
+	const albumCoverRequests = new Set<number>();
+
 	$: groupedHistory = groupHistory($songHistory);
+	$: hydrateMissingCovers($songHistory);
 
 	function groupHistory(entries: SongHistoryEntry[]) {
 		const groups = new Map<string, SongHistoryEntry[]>();
@@ -65,6 +69,33 @@
 			],
 			0
 		);
+	}
+
+	function hydrateMissingCovers(entries: SongHistoryEntry[]) {
+		for (const entry of entries) {
+			if (entry.coverArtId || !entry.albumId || albumCoverRequests.has(entry.albumId)) continue;
+			albumCoverRequests.add(entry.albumId);
+			void hydrateAlbumCover(entry.albumId);
+		}
+	}
+
+	async function hydrateAlbumCover(albumId: number) {
+		try {
+			const detail = await api.album(albumId);
+			const coverArtId = detail.album?.[6] ?? null;
+			if (!coverArtId) return;
+
+			songHistory.update((entries) =>
+				entries.map((entry) =>
+					entry.albumId === albumId && !entry.coverArtId ? { ...entry, coverArtId } : entry
+				)
+			);
+		} catch (error) {
+			console.warn('Unable to load history album art', {
+				albumId,
+				error: error instanceof Error ? error.message : String(error)
+			});
+		}
 	}
 </script>
 
