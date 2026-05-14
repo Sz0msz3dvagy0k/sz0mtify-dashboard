@@ -31,6 +31,7 @@
 
 	type PlayerDragMode = 'opening' | 'closing' | 'next' | 'previous';
 
+	let playerElement: HTMLDivElement;
 	let audio: HTMLAudioElement;
 	let lastTrackId: number | null = null;
 	let registeredTrackId: number | null = null;
@@ -48,13 +49,16 @@
 	let playRequestTrackId: number | null = null;
 	let streamRequestId = 0;
 	$: currentTrack = $player.queue[$player.currentIndex] ?? null;
+	$: previousTrack = $player.currentIndex > 0 ? $player.queue[$player.currentIndex - 1] : null;
+	$: nextTrack = $player.currentIndex < $player.queue.length - 1 ? $player.queue[$player.currentIndex + 1] : null;
 	$: progress = $player.duration > 0 ? ($player.currentTime / $player.duration) * 100 : 0;
 	$: verticalDragActive = playerDragMode === 'opening' || playerDragMode === 'closing';
 	$: horizontalDragActive = playerDragMode === 'next' || playerDragMode === 'previous';
 	$: visualExpanded = expanded || verticalDragActive;
-	$: playerDragStyle = playerDragMode
-		? `transform: translate3d(${Math.round(playerSwipeOffset)}px, ${Math.round(playerDragOffset)}px, 0);`
+	$: playerDragStyle = verticalDragActive
+		? `transform: translate3d(0, ${Math.round(playerDragOffset)}px, 0);`
 		: '';
+	$: swipeTrackStyle = `transform: translate3d(${Math.round(playerSwipeOffset)}px, 0, 0);`;
 
 	$: if (audio && currentTrack && currentTrack.id !== lastTrackId) {
 		lastTrackId = currentTrack.id;
@@ -278,7 +282,7 @@
 
 		if (!playerDragMode) {
 			if (absX >= 10 && absX > absY * 1.15) {
-				playerDragMode = deltaX > 0 ? 'next' : 'previous';
+				playerDragMode = deltaX < 0 ? 'next' : 'previous';
 				suppressNextPlayerClick = true;
 			} else if (absY >= 8 && absY > absX * 1.1 && !expanded && deltaY < 0) {
 				playerDragMode = 'opening';
@@ -336,11 +340,11 @@
 		const elapsed = Math.max(1, performance.now() - playerTouchStartTime);
 		const velocity = deltaX / elapsed;
 		const releaseDistance = Math.min(150, swipeLimit() * 0.42);
-		const shouldAdvance = deltaX > releaseDistance || velocity > 0.35;
-		const shouldGoBack = deltaX < -releaseDistance || velocity < -0.35;
+		const shouldAdvance = deltaX < -releaseDistance || velocity < -0.35;
+		const shouldGoBack = deltaX > releaseDistance || velocity > 0.35;
 
 		if (shouldAdvance && canPlayNext()) {
-			playerSwipeOffset = swipeLimit();
+			playerSwipeOffset = -swipeLimit();
 			window.setTimeout(() => {
 				playNext();
 				resetPlayerDrag();
@@ -349,7 +353,7 @@
 		}
 
 		if (shouldGoBack && canPlayPrevious()) {
-			playerSwipeOffset = -swipeLimit();
+			playerSwipeOffset = swipeLimit();
 			window.setTimeout(() => {
 				playPrevious();
 				resetPlayerDrag();
@@ -378,15 +382,15 @@
 
 	function swipeOffset(deltaX: number) {
 		const limit = swipeLimit();
-		const hasTarget = deltaX > 0 ? canPlayNext() : canPlayPrevious();
+		const hasTarget = deltaX < 0 ? canPlayNext() : canPlayPrevious();
 		if (hasTarget) return clamp(deltaX, -limit, limit);
 		const resistance = Math.min(Math.abs(deltaX) * 0.32, limit * 0.28);
 		return Math.sign(deltaX) * resistance;
 	}
 
 	function swipeLimit() {
-		if (!browser) return 220;
-		return Math.min(window.innerWidth * 0.72, expanded ? 420 : 260);
+		if (!browser) return 320;
+		return playerElement?.getBoundingClientRect().width || Math.min(window.innerWidth * 0.9, 420);
 	}
 
 	function canPlayNext() {
@@ -471,6 +475,7 @@
 
 {#if currentTrack}
 	<div
+		bind:this={playerElement}
 		class="player-bar"
 		class:expanded={visualExpanded}
 		class:dragging={playerPointerId !== null && playerDragMode !== null}
@@ -484,7 +489,23 @@
 		role="button"
 		tabindex="0"
 	>
-		{#if visualExpanded}
+		<div class="player-swipe-viewport">
+			<div class="player-swipe-track" class:dragging={playerPointerId !== null && horizontalDragActive} style={swipeTrackStyle}>
+				<div class="player-swipe-panel">
+					{#if previousTrack}
+						<div class="player-adjacent" class:expanded={visualExpanded}>
+							<div class={visualExpanded ? 'player-expanded-art' : 'player-art'}>
+								<ImageWithFallback src={queueTrackImage(previousTrack)} alt={previousTrack.title} />
+							</div>
+							<div class={visualExpanded ? 'player-expanded-title' : 'player-track'}>
+								<strong>{previousTrack.title}</strong>
+								<span>{previousTrack.artist} · {previousTrack.album}</span>
+							</div>
+						</div>
+					{/if}
+				</div>
+				<div class="player-swipe-panel">
+					{#if visualExpanded}
 			<button class="player-collapse" aria-label="Collapse player" on:click|stopPropagation={() => (expanded = false)}>×</button>
 			<div class="player-expanded-art">
 				<ImageWithFallback src={queueTrackImage(currentTrack)} alt={currentTrack.title} />
@@ -544,6 +565,22 @@
 				</button>
 			</div>
 		{/if}
+				</div>
+				<div class="player-swipe-panel">
+					{#if nextTrack}
+						<div class="player-adjacent" class:expanded={visualExpanded}>
+							<div class={visualExpanded ? 'player-expanded-art' : 'player-art'}>
+								<ImageWithFallback src={queueTrackImage(nextTrack)} alt={nextTrack.title} />
+							</div>
+							<div class={visualExpanded ? 'player-expanded-title' : 'player-track'}>
+								<strong>{nextTrack.title}</strong>
+								<span>{nextTrack.artist} · {nextTrack.album}</span>
+							</div>
+						</div>
+					{/if}
+				</div>
+			</div>
+		</div>
 
 		{#if $player.queueOpen}
 			<div class="queue-panel">

@@ -552,6 +552,49 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 	cursor: default;
 }
 .player-bar.dragging { transition: none; }
+.player-swipe-viewport {
+	grid-column: 1 / -1;
+	width: 100%;
+	min-width: 0;
+	overflow: hidden;
+}
+.player-swipe-track {
+	position: relative;
+	left: -100%;
+	display: grid;
+	grid-template-columns: repeat(3, 100%);
+	width: 100%;
+	transition: transform .24s cubic-bezier(.22, 1, .36, 1);
+	will-change: transform;
+}
+.player-swipe-track.dragging { transition: none; }
+.player-swipe-panel {
+	position: relative;
+	min-width: 0;
+	padding: 0 1px;
+}
+.player-bar.expanded .player-swipe-panel {
+	min-height: 100%;
+	display: grid;
+	grid-template-columns: minmax(220px, 34vw) minmax(0, 1fr);
+	gap: 28px;
+	align-content: center;
+}
+.player-adjacent {
+	min-width: 0;
+	display: grid;
+	grid-template-columns: 48px minmax(0, 1fr);
+	gap: 10px;
+	align-items: center;
+	opacity: .78;
+}
+.player-adjacent.expanded {
+	grid-column: 1 / -1;
+	grid-template-columns: minmax(220px, 34vw) minmax(0, 1fr);
+	gap: 28px;
+	align-content: center;
+	opacity: .88;
+}
 .player-compact {
 	display: grid;
 	grid-template-columns: 48px minmax(0, 1fr) 38px 38px;
@@ -752,6 +795,20 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 		border-left: 0;
 		border-right: 0;
 		overflow: auto;
+	}
+	.player-bar.expanded .player-swipe-viewport {
+		flex: 1;
+		min-height: 0;
+	}
+	.player-bar.expanded .player-swipe-track {
+		min-height: 100%;
+	}
+	.player-bar.expanded .player-swipe-panel,
+	.player-adjacent.expanded {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 18px;
 	}
 	.player-bar.expanded .queue-panel {
 		position: relative;
