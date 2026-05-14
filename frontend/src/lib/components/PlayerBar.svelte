@@ -15,6 +15,7 @@
 	import { loadCachedImage } from '$lib/imageCache';
 	import { formatDuration } from '$lib/format';
 	import {
+		closeQueue,
 		playIndex,
 		playNext,
 		playPrevious,
@@ -92,9 +93,20 @@
 	}
 
 	function handleGlobalKeydown(event: KeyboardEvent) {
+		if (event.key === 'Escape' && $player.queueOpen) {
+			event.preventDefault();
+			closeQueue();
+			return;
+		}
 		if (event.code !== 'Space' || event.repeat || !currentTrack || isEditingTarget(event.target)) return;
 		event.preventDefault();
 		togglePlay();
+	}
+
+	function handleGlobalPointerDown(event: PointerEvent) {
+		if (!$player.queueOpen) return;
+		if (event.target instanceof Node && playerElement?.contains(event.target)) return;
+		closeQueue();
 	}
 
 	async function updateMediaSessionMetadata(track: NonNullable<typeof currentTrack>) {
@@ -262,6 +274,7 @@
 
 	function handlePlayerPointerDown(event: PointerEvent) {
 		if (event.pointerType === 'mouse' || isPlayerControlTarget(event.target)) return;
+		closeQueue();
 		const target = event.currentTarget;
 		if (target instanceof HTMLElement) target.setPointerCapture(event.pointerId);
 		playerPointerId = event.pointerId;
@@ -405,6 +418,17 @@
 		return mode === 'next' || mode === 'previous';
 	}
 
+	function handlePlayerFocusOut(event: FocusEvent) {
+		if (!$player.queueOpen) return;
+		if (event.relatedTarget instanceof Node && playerElement?.contains(event.relatedTarget)) return;
+		closeQueue();
+	}
+
+	function handleQueueButtonClick(index: number) {
+		playIndex(index);
+		closeQueue();
+	}
+
 	function logAudioEvent(eventName: string) {
 		debugPlayer(`[player] audio ${eventName}`, {
 			trackId: currentTrack?.id ?? null,
@@ -460,7 +484,7 @@
 	});
 </script>
 
-<svelte:window on:keydown={handleGlobalKeydown} />
+<svelte:window on:keydown={handleGlobalKeydown} on:pointerdown|capture={handleGlobalPointerDown} />
 
 <audio
 	bind:this={audio}
@@ -486,9 +510,13 @@
 		on:pointermove={handlePlayerPointerMove}
 		on:pointerup={handlePlayerPointerUp}
 		on:pointercancel={resetPlayerDrag}
+		on:focusout={handlePlayerFocusOut}
 		role="button"
 		tabindex="0"
 	>
+		{#if visualExpanded}
+			<button class="player-collapse" aria-label="Collapse player" on:click|stopPropagation={() => (expanded = false)}>×</button>
+		{/if}
 		<div class="player-swipe-viewport">
 			<div class="player-swipe-track" class:dragging={playerPointerId !== null && horizontalDragActive} style={swipeTrackStyle}>
 				<div class="player-swipe-panel">
@@ -506,7 +534,6 @@
 				</div>
 				<div class="player-swipe-panel">
 					{#if visualExpanded}
-			<button class="player-collapse" aria-label="Collapse player" on:click|stopPropagation={() => (expanded = false)}>×</button>
 			<div class="player-expanded-art">
 				<ImageWithFallback src={queueTrackImage(currentTrack)} alt={currentTrack.title} />
 			</div>
@@ -583,10 +610,10 @@
 		</div>
 
 		{#if $player.queueOpen}
-			<div class="queue-panel">
+			<div class="queue-panel" role="dialog" aria-label="Queue" tabindex="-1" on:pointerdown|stopPropagation>
 				<header>Queue</header>
 				{#each $player.queue as track, index}
-					<button class:active={index === $player.currentIndex} on:click|stopPropagation={() => playIndex(index)}>
+					<button class:active={index === $player.currentIndex} on:click|stopPropagation={() => handleQueueButtonClick(index)}>
 						<div class="queue-art">
 							<ImageWithFallback src={queueTrackImage(track)} alt={track.title} />
 						</div>

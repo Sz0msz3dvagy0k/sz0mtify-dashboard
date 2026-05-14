@@ -571,6 +571,7 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 .player-swipe-panel {
 	position: relative;
 	min-width: 0;
+	overflow: hidden;
 	padding: 0 1px;
 }
 .player-bar.expanded .player-swipe-panel {
@@ -582,11 +583,13 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 }
 .player-adjacent {
 	min-width: 0;
+	max-width: 100%;
 	display: grid;
 	grid-template-columns: 48px minmax(0, 1fr);
 	gap: 10px;
 	align-items: center;
 	opacity: .78;
+	overflow: hidden;
 }
 .player-adjacent.expanded {
 	grid-column: 1 / -1;
@@ -594,6 +597,12 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 	gap: 28px;
 	align-content: center;
 	opacity: .88;
+}
+.player-adjacent .player-expanded-title,
+.player-adjacent .player-track {
+	min-width: 0;
+	max-width: 100%;
+	overflow: hidden;
 }
 .player-compact {
 	display: grid;
@@ -627,6 +636,7 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 	position: absolute;
 	top: calc(max(10px, env(safe-area-inset-top)) + 12px);
 	right: 10px;
+	z-index: 3;
 	width: 34px;
 	height: 34px;
 	border: 1px solid #404040;
@@ -809,6 +819,9 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 		flex-direction: column;
 		align-items: center;
 		gap: 18px;
+	}
+	.player-adjacent.expanded .player-expanded-title {
+		width: 100%;
 	}
 	.player-bar.expanded .queue-panel {
 		position: relative;

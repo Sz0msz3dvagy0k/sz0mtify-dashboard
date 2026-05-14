@@ -135,6 +135,10 @@ export function toggleQueue() {
 	player.update((state) => ({ ...state, queueOpen: !state.queueOpen }));
 }
 
+export function closeQueue() {
+	player.update((state) => (state.queueOpen ? { ...state, queueOpen: false } : state));
+}
+
 export async function warmStreamToken() {
 	cachedStreamToken = await api.streamToken();
 }
