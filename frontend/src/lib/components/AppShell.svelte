@@ -12,11 +12,13 @@
 		Library,
 		ListMusic,
 		LogOut,
+		Menu,
 		Radio,
 		Search,
 		Settings,
 		Tags,
-		UsersRound
+		UsersRound,
+		X
 	} from 'lucide-svelte';
 	import { api } from '$lib/api';
 	import { clearAuthSession, loadStoredSession } from '$lib/auth';
@@ -45,6 +47,7 @@
 	let authChecked = false;
 	let authenticated = false;
 	let accountName = '';
+	let mobileMenuOpen = false;
 	$: current = nav.find((item) => $page.url.pathname.startsWith(item.href)) ?? nav[0];
 	$: subtitle = status.length ? status.map((row) => `${row[1]} ${row[3]}`).join(' · ') : 'Backend status pending';
 
@@ -87,8 +90,15 @@
 		playlists = [];
 		authenticated = false;
 		accountName = '';
+		mobileMenuOpen = false;
+	}
+
+	function closeMobileMenu() {
+		mobileMenuOpen = false;
 	}
 </script>
+
+<svelte:window on:keydown={(event) => event.key === 'Escape' && closeMobileMenu()} />
 
 <svelte:head>
 	<title>{authenticated ? `${current.label} · Archive` : 'Sign in · Archive'}</title>
@@ -104,14 +114,17 @@
 	<LoginPage onAuthenticated={handleAuthenticated} />
 {:else}
 	<div class="app-shell">
-		<aside class="sidebar">
+		{#if mobileMenuOpen}
+			<button class="mobile-menu-backdrop" aria-label="Close menu" on:click={closeMobileMenu}></button>
+		{/if}
+		<aside class="sidebar" class:open={mobileMenuOpen}>
 			<a class="brand" href="/overview">
 				<Disc3 size={28} strokeWidth={1.4} />
 				<span>Archive</span>
 			</a>
 			<nav>
 				{#each nav as item}
-					<a class:active={$page.url.pathname.startsWith(item.href)} href={item.href}>
+					<a class:active={$page.url.pathname.startsWith(item.href)} href={item.href} on:click={closeMobileMenu}>
 						<svelte:component this={item.icon} size={18} strokeWidth={1.5} />
 						<span>{item.label}</span>
 					</a>
@@ -121,16 +134,21 @@
 				<div class="sidebar-section">
 					<span>Playlists</span>
 					{#each playlists.slice(0, 8) as playlist}
-						<a class:active={$page.url.pathname === `/playlists/${encodeURIComponent(playlist.id)}`} href={`/playlists/${encodeURIComponent(playlist.id)}`}>{playlist.name}</a>
+						<a class:active={$page.url.pathname === `/playlists/${encodeURIComponent(playlist.id)}`} href={`/playlists/${encodeURIComponent(playlist.id)}`} on:click={closeMobileMenu}>{playlist.name}</a>
 					{/each}
 				</div>
 			{/if}
 		</aside>
 		<div class="main-column">
 			<header class="topbar">
-				<div>
-					<p>Music analytics</p>
-					<h1>{current.label}</h1>
+				<div class="topbar-heading">
+					<button class="icon-button menu-button" aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'} aria-expanded={mobileMenuOpen} on:click={() => (mobileMenuOpen = !mobileMenuOpen)}>
+						{#if mobileMenuOpen}<X size={20} strokeWidth={1.7} />{:else}<Menu size={20} strokeWidth={1.7} />{/if}
+					</button>
+					<div>
+						<p>Music analytics</p>
+						<h1>{current.label}</h1>
+					</div>
 				</div>
 				<div class="topbar-actions">
 					<div class="status-pill">
