@@ -29,6 +29,8 @@
 		toggleQueue
 	} from '$lib/player';
 
+	type PlayerDragMode = 'opening' | 'closing' | 'next' | 'previous';
+
 	let audio: HTMLAudioElement;
 	let lastTrackId: number | null = null;
 	let registeredTrackId: number | null = null;
@@ -38,7 +40,8 @@
 	let playerTouchStartX = 0;
 	let playerTouchStartTime = 0;
 	let playerDragOffset = 0;
-	let playerDragMode: 'opening' | 'closing' | null = null;
+	let playerSwipeOffset = 0;
+	let playerDragMode: PlayerDragMode | null = null;
 	let playerPointerId: number | null = null;
 	let suppressNextPlayerClick = false;
 	let mediaSessionTrackId: number | null = null;
@@ -46,8 +49,12 @@
 	let streamRequestId = 0;
 	$: currentTrack = $player.queue[$player.currentIndex] ?? null;
 	$: progress = $player.duration > 0 ? ($player.currentTime / $player.duration) * 100 : 0;
-	$: visualExpanded = expanded || playerDragMode !== null;
-	$: playerDragStyle = playerDragMode ? `transform: translate3d(0, ${Math.round(playerDragOffset)}px, 0);` : '';
+	$: verticalDragActive = playerDragMode === 'opening' || playerDragMode === 'closing';
+	$: horizontalDragActive = playerDragMode === 'next' || playerDragMode === 'previous';
+	$: visualExpanded = expanded || verticalDragActive;
+	$: playerDragStyle = playerDragMode
+		? `transform: translate3d(${Math.round(playerSwipeOffset)}px, ${Math.round(playerDragOffset)}px, 0);`
+		: '';
 
 	$: if (audio && currentTrack && currentTrack.id !== lastTrackId) {
 		lastTrackId = currentTrack.id;
@@ -258,6 +265,7 @@
 		playerTouchStartY = event.clientY;
 		playerTouchStartTime = performance.now();
 		playerDragOffset = expanded ? 0 : closedPlayerOffset();
+		playerSwipeOffset = 0;
 		playerDragMode = null;
 	}
 
@@ -265,13 +273,17 @@
 		if (playerPointerId !== event.pointerId) return;
 		const deltaX = event.clientX - playerTouchStartX;
 		const deltaY = event.clientY - playerTouchStartY;
-		if (Math.abs(deltaX) > 80 || Math.abs(deltaY) < 8) return;
+		const absX = Math.abs(deltaX);
+		const absY = Math.abs(deltaY);
 
 		if (!playerDragMode) {
-			if (!expanded && deltaY < 0) {
+			if (absX >= 10 && absX > absY * 1.15) {
+				playerDragMode = deltaX > 0 ? 'next' : 'previous';
+				suppressNextPlayerClick = true;
+			} else if (absY >= 8 && absY > absX * 1.1 && !expanded && deltaY < 0) {
 				playerDragMode = 'opening';
 				suppressNextPlayerClick = true;
-			} else if (expanded && deltaY > 0) {
+			} else if (absY >= 8 && absY > absX * 1.1 && expanded && deltaY > 0) {
 				playerDragMode = 'closing';
 				suppressNextPlayerClick = true;
 			} else {
@@ -280,6 +292,11 @@
 		}
 
 		event.preventDefault();
+		if (isHorizontalDragMode(playerDragMode)) {
+			playerSwipeOffset = swipeOffset(deltaX);
+			return;
+		}
+
 		if (playerDragMode === 'opening') {
 			playerDragOffset = clamp(closedPlayerOffset() + deltaY, 0, closedPlayerOffset());
 		} else {
@@ -294,6 +311,11 @@
 			resetPlayerDrag();
 			return;
 		}
+		if (isHorizontalDragMode(playerDragMode)) {
+			finishHorizontalSwipe(event);
+			return;
+		}
+
 		const deltaY = event.clientY - playerTouchStartY;
 		const elapsed = Math.max(1, performance.now() - playerTouchStartTime);
 		const velocity = deltaY / elapsed;
@@ -306,11 +328,42 @@
 			: !(playerDragOffset > releaseDistance || velocity > 0.25);
 		playerDragMode = null;
 		playerDragOffset = 0;
+		playerSwipeOffset = 0;
+	}
+
+	function finishHorizontalSwipe(event: PointerEvent) {
+		const deltaX = event.clientX - playerTouchStartX;
+		const elapsed = Math.max(1, performance.now() - playerTouchStartTime);
+		const velocity = deltaX / elapsed;
+		const releaseDistance = Math.min(150, swipeLimit() * 0.42);
+		const shouldAdvance = deltaX > releaseDistance || velocity > 0.35;
+		const shouldGoBack = deltaX < -releaseDistance || velocity < -0.35;
+
+		if (shouldAdvance && canPlayNext()) {
+			playerSwipeOffset = swipeLimit();
+			window.setTimeout(() => {
+				playNext();
+				resetPlayerDrag();
+			}, 130);
+			return;
+		}
+
+		if (shouldGoBack && canPlayPrevious()) {
+			playerSwipeOffset = -swipeLimit();
+			window.setTimeout(() => {
+				playPrevious();
+				resetPlayerDrag();
+			}, 130);
+			return;
+		}
+
+		resetPlayerDrag();
 	}
 
 	function resetPlayerDrag() {
 		playerDragMode = null;
 		playerDragOffset = 0;
+		playerSwipeOffset = 0;
 		playerPointerId = null;
 	}
 
@@ -321,6 +374,31 @@
 
 	function clamp(value: number, min: number, max: number) {
 		return Math.min(Math.max(value, min), max);
+	}
+
+	function swipeOffset(deltaX: number) {
+		const limit = swipeLimit();
+		const hasTarget = deltaX > 0 ? canPlayNext() : canPlayPrevious();
+		if (hasTarget) return clamp(deltaX, -limit, limit);
+		const resistance = Math.min(Math.abs(deltaX) * 0.32, limit * 0.28);
+		return Math.sign(deltaX) * resistance;
+	}
+
+	function swipeLimit() {
+		if (!browser) return 220;
+		return Math.min(window.innerWidth * 0.72, expanded ? 420 : 260);
+	}
+
+	function canPlayNext() {
+		return $player.currentIndex >= 0 && $player.currentIndex < $player.queue.length - 1;
+	}
+
+	function canPlayPrevious() {
+		return $player.currentIndex > 0;
+	}
+
+	function isHorizontalDragMode(mode: PlayerDragMode | null) {
+		return mode === 'next' || mode === 'previous';
 	}
 
 	function logAudioEvent(eventName: string) {
@@ -395,7 +473,7 @@
 	<div
 		class="player-bar"
 		class:expanded={visualExpanded}
-		class:dragging={playerDragMode !== null}
+		class:dragging={playerPointerId !== null && playerDragMode !== null}
 		style={playerDragStyle}
 		on:click={toggleExpanded}
 		on:keydown={(event) => (event.key === 'Enter' || event.key === ' ') && toggleExpanded(event)}
