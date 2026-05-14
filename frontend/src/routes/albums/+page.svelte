@@ -61,6 +61,7 @@
 			}
 		});
 	$: largest = storage?.largest_albums.slice(0, 12) ?? [];
+	$: largestChartRows = largest.slice(0, 8);
 	$: pageStart = (page - 1) * itemsPerPage;
 	$: visibleAlbums = filtered.slice(pageStart, pageStart + itemsPerPage);
 	$: largestTableRows = largest.slice(0, 8).map((a, index) => ({
@@ -107,9 +108,10 @@
 		<ChartCard
 			title="Largest Albums"
 			option={{
-				xAxis: { type: 'value', axisLabel: { color: '#8a8a8a' }, splitLine: { lineStyle: { color: '#262626' } } },
-				yAxis: { type: 'category', data: largest.slice(0, 8).map((a) => a[1] ?? 'Unknown').reverse(), axisLabel: { color: '#a3a3a3' } },
-				series: [{ type: 'bar', data: largest.slice(0, 8).map((a) => a[3]).reverse(), color: '#e5e5e5' }]
+				xAxis: { type: 'value', axisLabel: { color: '#8a8a8a', formatter: (value: number) => `${value} MB` }, splitLine: { lineStyle: { color: '#262626' } } },
+				yAxis: { type: 'category', data: largestChartRows.map((a) => a[1] ?? 'Unknown').reverse(), axisLabel: { color: '#a3a3a3' } },
+				series: [{ type: 'bar', data: largestChartRows.map((a) => Number((a[3] / 1024 ** 2).toFixed(1))).reverse(), color: '#e5e5e5' }],
+				tooltip: { valueFormatter: (value: number) => `${value.toFixed(1)} MB` }
 			}}
 		/>
 		<ExpandableTable title="Largest Albums" rows={largestTableRows} />
