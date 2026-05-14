@@ -557,6 +557,8 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 	}
 	.player-bar.expanded {
 		inset: 0;
+		display: flex;
+		flex-direction: column;
 		padding:
 			calc(max(20px, env(safe-area-inset-top)) + 8px)
 			max(18px, env(safe-area-inset-right))
@@ -565,17 +567,25 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 		border-radius: 0;
 		border-left: 0;
 		border-right: 0;
-		grid-template-columns: 1fr;
-		align-content: start;
 		overflow: auto;
+	}
+	.player-collapse {
+		top: calc(max(10px, env(safe-area-inset-top)) + 18px);
+		right: max(18px, env(safe-area-inset-right));
 	}
 	.player-expanded-art {
 		width: min(340px, 82vw);
 		justify-self: center;
+		margin-top: 48px;
+	}
+	.player-expanded-main {
+		flex: 1;
+		width: 100%;
+		min-height: 0;
 	}
 	.player-expanded-title { text-align: center; }
 	.player-expanded-title strong { white-space: normal; font-size: clamp(30px, 9vw, 46px); }
-	.player-bar.expanded .player-center { padding-top: 56px; }
+	.player-bar.expanded .player-center { margin-top: auto; padding-top: 56px; padding-bottom: 8px; }
 	.player-actions { justify-content: space-between; }
 	.settings-panel { grid-template-columns: 1fr; align-items: stretch; }
 }

@@ -288,11 +288,12 @@
 		const elapsed = Math.max(1, performance.now() - playerTouchStartTime);
 		const velocity = deltaY / elapsed;
 		const closedOffset = closedPlayerOffset();
-		const progress = 1 - playerDragOffset / closedOffset;
+		const openDistance = closedOffset - playerDragOffset;
+		const releaseDistance = Math.min(140, closedOffset * 0.22);
 
 		expanded = playerDragMode === 'opening'
-			? progress > 0.34 || velocity < -0.45
-			: !(progress < 0.66 || velocity > 0.45);
+			? openDistance > releaseDistance || velocity < -0.25
+			: !(playerDragOffset > releaseDistance || velocity > 0.25);
 		playerDragMode = null;
 		playerDragOffset = 0;
 	}
