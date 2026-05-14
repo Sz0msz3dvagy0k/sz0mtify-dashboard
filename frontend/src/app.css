@@ -395,11 +395,13 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 	cursor: pointer;
 }
 .player-bar.expanded {
-	min-height: 220px;
+	top: max(18px, env(safe-area-inset-top));
+	min-height: auto;
 	display: grid;
-	grid-template-columns: 180px minmax(0, 1fr);
-	gap: 18px;
-	padding: 16px;
+	grid-template-columns: minmax(220px, 34vw) minmax(0, 1fr);
+	gap: 28px;
+	align-content: center;
+	padding: 28px;
 	cursor: default;
 }
 .player-compact {
@@ -413,15 +415,15 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 .player-track span { color: #8a8a8a; font-size: 13px; margin-top: 4px; }
 .player-art { width: 48px; height: 48px; overflow: hidden; border: 1px solid #262626; border-radius: 6px; background: #181818; }
 .player-expanded-art {
-	width: 180px;
+	width: min(420px, 100%);
 	aspect-ratio: 1;
 	overflow: hidden;
 	border: 1px solid #262626;
 	border-radius: 8px;
 	background: #181818;
 }
-.player-expanded-main { min-width: 0; display: grid; align-content: center; gap: 18px; }
-.player-expanded-title strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: clamp(24px, 4vw, 38px); line-height: 1; }
+.player-expanded-main { min-width: 0; display: grid; align-content: center; gap: 24px; }
+.player-expanded-title strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: clamp(34px, 6vw, 72px); line-height: .95; }
 .player-expanded-title span { display: block; margin-top: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #a3a3a3; }
 .player-collapse {
 	position: absolute;
@@ -539,12 +541,25 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 		bottom: max(12px, env(safe-area-inset-bottom));
 	}
 	.player-bar.expanded {
+		inset: 0;
+		padding:
+			calc(max(20px, env(safe-area-inset-top)) + 8px)
+			max(18px, env(safe-area-inset-right))
+			max(20px, env(safe-area-inset-bottom))
+			max(18px, env(safe-area-inset-left));
+		border-radius: 0;
+		border-left: 0;
+		border-right: 0;
 		grid-template-columns: 1fr;
+		align-content: start;
+		overflow: auto;
 	}
 	.player-expanded-art {
-		width: min(240px, 100%);
+		width: min(340px, 82vw);
 		justify-self: center;
 	}
+	.player-expanded-title { text-align: center; }
+	.player-expanded-title strong { white-space: normal; font-size: clamp(30px, 9vw, 46px); }
 	.player-actions { justify-content: space-between; }
 	.settings-panel { grid-template-columns: 1fr; align-items: stretch; }
 }

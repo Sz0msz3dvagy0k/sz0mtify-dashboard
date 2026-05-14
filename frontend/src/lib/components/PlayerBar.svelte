@@ -31,6 +31,9 @@
 	let registeredTrackId: number | null = null;
 	let pendingAutoplayTrackId: number | null = null;
 	let expanded = false;
+	let playerTouchStartY = 0;
+	let playerTouchStartX = 0;
+	let suppressNextPlayerClick = false;
 	let streamRequestId = 0;
 	$: currentTrack = $player.queue[$player.currentIndex] ?? null;
 	$: progress = $player.duration > 0 ? ($player.currentTime / $player.duration) * 100 : 0;
@@ -68,6 +71,12 @@
 		if (!(target instanceof HTMLElement)) return false;
 		if (target.isContentEditable) return true;
 		return Boolean(target.closest('input, textarea, select, button, a, [role="button"], [role="slider"]'));
+	}
+
+	function isPlayerControlTarget(target: EventTarget | null) {
+		if (!(target instanceof HTMLElement)) return false;
+		if (target.isContentEditable) return true;
+		return Boolean(target.closest('input, textarea, select, button, a, [role="slider"]'));
 	}
 
 	async function loadTrackStream(trackId: number, requestId: number) {
@@ -127,8 +136,36 @@
 	}
 
 	function toggleExpanded(event: MouseEvent | KeyboardEvent) {
-		if (isEditingTarget(event.target)) return;
+		if (suppressNextPlayerClick) {
+			suppressNextPlayerClick = false;
+			return;
+		}
+		if (isPlayerControlTarget(event.target)) return;
 		expanded = true;
+	}
+
+	function handlePlayerTouchStart(event: TouchEvent) {
+		if (event.touches.length !== 1 || isPlayerControlTarget(event.target)) return;
+		const touch = event.touches[0];
+		playerTouchStartX = touch.clientX;
+		playerTouchStartY = touch.clientY;
+	}
+
+	function handlePlayerTouchEnd(event: TouchEvent) {
+		if (event.changedTouches.length !== 1) return;
+		const touch = event.changedTouches[0];
+		const deltaX = touch.clientX - playerTouchStartX;
+		const deltaY = touch.clientY - playerTouchStartY;
+		if (Math.abs(deltaX) > 80 || Math.abs(deltaY) < 56) return;
+
+		if (!expanded && deltaY < 0) {
+			expanded = true;
+			suppressNextPlayerClick = true;
+		}
+		if (expanded && deltaY > 0) {
+			expanded = false;
+			suppressNextPlayerClick = true;
+		}
 	}
 
 	function logAudioEvent(eventName: string) {
@@ -190,7 +227,16 @@
 ></audio>
 
 {#if currentTrack}
-	<div class="player-bar" class:expanded on:click={toggleExpanded} on:keydown={(event) => (event.key === 'Enter' || event.key === ' ') && toggleExpanded(event)} role="button" tabindex="0">
+	<div
+		class="player-bar"
+		class:expanded
+		on:click={toggleExpanded}
+		on:keydown={(event) => (event.key === 'Enter' || event.key === ' ') && toggleExpanded(event)}
+		on:touchstart={handlePlayerTouchStart}
+		on:touchend={handlePlayerTouchEnd}
+		role="button"
+		tabindex="0"
+	>
 		{#if expanded}
 			<button class="player-collapse" aria-label="Collapse player" on:click|stopPropagation={() => (expanded = false)}>×</button>
 			<div class="player-expanded-art">
