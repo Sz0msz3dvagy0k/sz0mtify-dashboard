@@ -1,4 +1,5 @@
 import { writable } from 'svelte/store';
+import { browser } from '$app/environment';
 import { withStreamToken } from '$lib/auth';
 import { api } from '$lib/api';
 import { apiBase, coverUrl } from '$lib/format';
@@ -24,6 +25,21 @@ type PlayerState = {
 	queueOpen: boolean;
 };
 
+export type SongHistoryEntry = QueueTrack & {
+	playedAt: string;
+};
+
+type StoredPlayerState = {
+	queue: QueueTrack[];
+	currentIndex: number;
+	volume: number;
+	wasPlaying: boolean;
+};
+
+const playerStorageKey = 'archive.playerState.v1';
+const historyStorageKey = 'archive.songHistory.v1';
+const maxHistoryEntries = 200;
+
 const initialState: PlayerState = {
 	queue: [],
 	currentIndex: -1,
@@ -34,9 +50,26 @@ const initialState: PlayerState = {
 	queueOpen: false
 };
 
-export const player = writable<PlayerState>(initialState);
+export const player = writable<PlayerState>(restorePlayerState());
+export const songHistory = writable<SongHistoryEntry[]>(restoreSongHistory());
 
 let cachedStreamToken: { token: string; expires_at: number } | null = null;
+
+player.subscribe((state) => {
+	if (!browser) return;
+	const stored: StoredPlayerState = {
+		queue: state.queue,
+		currentIndex: state.currentIndex,
+		volume: state.volume,
+		wasPlaying: state.isPlaying
+	};
+	writeJson(playerStorageKey, stored);
+});
+
+songHistory.subscribe((entries) => {
+	if (!browser) return;
+	writeJson(historyStorageKey, entries.slice(0, maxHistoryEntries));
+});
 
 export function playQueue(queue: QueueTrack[], startIndex = 0) {
 	if (!queue.length) return;
@@ -127,4 +160,62 @@ export async function streamUrl(trackId: number) {
 
 export function queueTrackImage(track: QueueTrack | null | undefined) {
 	return coverUrl(track?.coverArtId);
+}
+
+export function recordSongHistory(track: QueueTrack) {
+	songHistory.update((entries) => {
+		const playedAt = new Date().toISOString();
+		const previous = entries[0];
+		if (previous?.id === track.id && Date.now() - new Date(previous.playedAt).getTime() < 30_000) {
+			return entries;
+		}
+		return [{ ...track, playedAt }, ...entries].slice(0, maxHistoryEntries);
+	});
+}
+
+function restorePlayerState(): PlayerState {
+	if (!browser) return initialState;
+	const stored = readJson<StoredPlayerState>(playerStorageKey);
+	if (!stored?.wasPlaying || !Array.isArray(stored.queue) || !stored.queue.length) return initialState;
+
+	const currentIndex = Math.min(Math.max(stored.currentIndex ?? 0, 0), stored.queue.length - 1);
+	return {
+		...initialState,
+		queue: stored.queue,
+		currentIndex,
+		isPlaying: false,
+		volume: clampVolume(stored.volume)
+	};
+}
+
+function restoreSongHistory(): SongHistoryEntry[] {
+	if (!browser) return [];
+	const entries = readJson<SongHistoryEntry[]>(historyStorageKey);
+	if (!Array.isArray(entries)) return [];
+	return entries
+		.filter((entry) => Number.isFinite(entry.id) && Boolean(entry.title) && Boolean(entry.playedAt))
+		.slice(0, maxHistoryEntries);
+}
+
+function readJson<T>(key: string): T | null {
+	try {
+		const value = localStorage.getItem(key);
+		return value ? (JSON.parse(value) as T) : null;
+	} catch (error) {
+		console.warn('Unable to read local player state', { key, error });
+		return null;
+	}
+}
+
+function writeJson(key: string, value: unknown) {
+	try {
+		localStorage.setItem(key, JSON.stringify(value));
+	} catch (error) {
+		console.warn('Unable to save local player state', { key, error });
+	}
+}
+
+function clampVolume(value: number | null | undefined) {
+	if (!Number.isFinite(value)) return initialState.volume;
+	return Math.min(Math.max(value ?? initialState.volume, 0), 1);
 }

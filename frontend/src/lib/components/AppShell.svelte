@@ -1,15 +1,15 @@
 <script lang="ts">
 	import { page } from '$app/stores';
+	import { goto } from '$app/navigation';
 	import {
 		Album,
-		Activity,
 		AudioLines,
 		BarChart3,
 		Compass,
 		Disc3,
 		HardDrive,
+		History,
 		HeartPulse,
-		Library,
 		ListMusic,
 		LogOut,
 		Menu,
@@ -24,8 +24,8 @@
 	import { clearAuthSession, loadStoredSession } from '$lib/auth';
 	import { initNetworkStatus } from '$lib/mobileNetwork';
 	import { warmStreamToken } from '$lib/player';
-	import type { AuthSession, PlaylistSummary, SyncStatus } from '$lib/types';
-	import { onMount } from 'svelte';
+	import type { AuthSession, PlaylistSummary } from '$lib/types';
+	import { onMount, tick } from 'svelte';
 	import LoginPage from './LoginPage.svelte';
 	import PlayerBar from './PlayerBar.svelte';
 
@@ -39,8 +39,8 @@
 		{ href: '/storage', label: 'Storage', icon: HardDrive },
 		{ href: '/metadata-health', label: 'Metadata Health', icon: HeartPulse },
 		{ href: '/listening', label: 'Listening Stats', icon: Radio },
+		{ href: '/history', label: 'Song History', icon: History },
 		{ href: '/discovery', label: 'Discovery', icon: Compass },
-		{ href: '/search', label: 'Search', icon: Search },
 		{ href: '/settings', label: 'Settings', icon: Settings }
 	];
 	const mobileMenuBreakpoint = 980;
@@ -48,17 +48,27 @@
 	const swipeDistance = 56;
 	const swipeOffAxisLimit = 70;
 
-	let status: SyncStatus = [];
 	let playlists: PlaylistSummary[] = [];
 	let authChecked = false;
 	let authenticated = false;
 	let accountName = '';
 	let mobileMenuOpen = false;
+	let searchOpen = false;
+	let searchValue = '';
+	let syncedSearchParam: string | null = null;
+	let searchInput: HTMLInputElement;
 	let swipeStartX = 0;
 	let swipeStartY = 0;
 	let trackedSwipe: 'open' | 'close' | null = null;
 	$: current = nav.find((item) => $page.url.pathname.startsWith(item.href)) ?? nav[0];
-	$: subtitle = status.length ? status.map((row) => `${row[1]} ${row[3]}`).join(' · ') : 'Backend status pending';
+	$: currentLabel = $page.url.pathname.startsWith('/search') ? 'Search' : current.label;
+	$: if ($page.url.pathname === '/search') {
+		const queryParam = $page.url.searchParams.get('q') ?? '';
+		if (queryParam !== syncedSearchParam) {
+			searchValue = queryParam;
+			syncedSearchParam = queryParam;
+		}
+	}
 
 	onMount(async () => {
 		const session = loadStoredSession();
@@ -82,10 +92,7 @@
 	});
 
 	async function loadShellData() {
-		[status, playlists] = await Promise.all([
-			api.syncStatus().catch(() => []),
-			api.playlists().catch(() => [])
-		]);
+		playlists = await api.playlists().catch(() => []);
 	}
 
 	async function handleAuthenticated(session: AuthSession) {
@@ -99,15 +106,33 @@
 	async function signOut() {
 		await api.logout().catch(() => null);
 		clearAuthSession();
-		status = [];
 		playlists = [];
 		authenticated = false;
 		accountName = '';
 		mobileMenuOpen = false;
+		searchOpen = false;
 	}
 
 	function closeMobileMenu() {
 		mobileMenuOpen = false;
+	}
+
+	async function openMobileSearch() {
+		searchOpen = true;
+		await tick();
+		searchInput?.focus();
+	}
+
+	function closeSearch() {
+		searchOpen = false;
+		searchInput?.blur();
+	}
+
+	async function submitSearch() {
+		const query = searchValue.trim();
+		if (!query) return;
+		closeSearch();
+		await goto(`/search?q=${encodeURIComponent(query)}`);
 	}
 
 	function isMobileViewport() {
@@ -167,7 +192,7 @@
 />
 
 <svelte:head>
-	<title>{authenticated ? `${current.label} · Archive` : 'Sign in · Archive'}</title>
+	<title>{authenticated ? `${currentLabel} · Archive` : 'Sign in · Archive'}</title>
 </svelte:head>
 
 {#if !authChecked}
@@ -213,19 +238,34 @@
 					</button>
 					<div>
 						<p>Music analytics</p>
-						<h1>{current.label}</h1>
+						<h1>{currentLabel}</h1>
 					</div>
 				</div>
+				<form class="topbar-search desktop-search" role="search" on:submit|preventDefault={submitSearch}>
+					<Search size={18} strokeWidth={1.6} />
+					<input bind:value={searchValue} placeholder="Search tracks, albums, artists" aria-label="Search tracks, albums, artists" />
+				</form>
 				<div class="topbar-actions">
-					<div class="status-pill">
-						<Activity size={16} strokeWidth={1.5} />
-						<span>{subtitle}</span>
-					</div>
 					<button class="icon-button" aria-label={`Sign out ${accountName}`} title={`Signed in as ${accountName}`} on:click={signOut}>
 						<LogOut size={18} strokeWidth={1.5} />
 					</button>
+					<button class="icon-button mobile-search-button" aria-label="Search" on:click={openMobileSearch}>
+						<Search size={18} strokeWidth={1.5} />
+					</button>
 				</div>
 			</header>
+			{#if searchOpen}
+				<div class="search-overlay" role="dialog" aria-label="Search">
+					<button class="search-overlay-backdrop" aria-label="Close search" on:click={closeSearch}></button>
+					<form class="topbar-search mobile-search" role="search" on:submit|preventDefault={submitSearch}>
+						<Search size={18} strokeWidth={1.6} />
+						<input bind:this={searchInput} bind:value={searchValue} placeholder="Search tracks, albums, artists" aria-label="Search tracks, albums, artists" on:keydown={(event) => event.key === 'Escape' && closeSearch()} />
+						<button class="icon-button" type="button" aria-label="Close search" on:click={closeSearch}>
+							<X size={18} strokeWidth={1.6} />
+						</button>
+					</form>
+				</div>
+			{/if}
 			<main class="page-surface">
 				<slot />
 			</main>

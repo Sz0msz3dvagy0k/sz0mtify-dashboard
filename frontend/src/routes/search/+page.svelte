@@ -1,57 +1,110 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
+	import { page } from '$app/stores';
 	import { api } from '$lib/api';
 	import type { SearchResult } from '$lib/types';
 	import EmptyState from '$lib/components/EmptyState.svelte';
 	import ErrorState from '$lib/components/ErrorState.svelte';
+	import ImageWithFallback from '$lib/components/ImageWithFallback.svelte';
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
-	import { albumTrackHref } from '$lib/navigation';
+	import { coverUrl, formatDuration } from '$lib/format';
+	import { player, playQueue, type QueueTrack } from '$lib/player';
 
-	let q = '';
+	let query = '';
+	let loadedQuery = '';
 	let result: SearchResult | null = null;
 	let error = '';
 	let loading = false;
 
-	async function search() {
+	$: queryParam = $page.url.searchParams.get('q')?.trim() ?? '';
+	$: if (browser && queryParam !== loadedQuery) void search(queryParam);
+	$: trackQueue = result ? result.tracks.map(trackToQueueItem) : [];
+	$: playingTrackId = $player.isPlaying ? $player.queue[$player.currentIndex]?.id ?? null : null;
+
+	async function search(nextQuery: string) {
+		query = nextQuery;
+		loadedQuery = nextQuery;
 		error = '';
 		result = null;
-		if (!q.trim()) return;
+		if (!nextQuery) return;
 		loading = true;
 		try {
-			result = await api.search(q);
+			result = await api.search(nextQuery);
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Search failed';
 		} finally {
 			loading = false;
 		}
 	}
+
+	function playTrack(index: number) {
+		playQueue(trackQueue, index);
+	}
+
+	function trackToQueueItem(row: SearchResult['tracks'][number]): QueueTrack {
+		return {
+			id: row[0],
+			title: row[1],
+			artist: row[2] ?? 'Unknown artist',
+			album: row[4] ?? 'Unknown album',
+			albumId: row[3],
+			coverArtId: row[5],
+			duration: row[6]
+		};
+	}
 </script>
 
-<section class="search-panel">
-	<input bind:value={q} on:keydown={(event) => event.key === 'Enter' && search()} placeholder="Search tracks, albums, artists" autofocus />
-	<button class="button" on:click={search} disabled={loading}>{loading ? 'Searching…' : 'Search'}</button>
-</section>
-
-{#if error}
-	<ErrorState message={error} retry={search} />
+{#if loading}
+	<div class="skeleton-card"></div>
+{:else if error}
+	<ErrorState message={error} retry={() => search(query)} />
 {:else if result}
 	<section class="split-grid">
 		<div>
 			<SectionHeader title="Tracks" eyebrow={`${result.tracks.length} results`} />
-			<div class="panel-list">
-				{#each result.tracks as row}
-					{#if albumTrackHref(row[0], row[2])}
-						<a class="result-row" href={albumTrackHref(row[0], row[2])}>{row[1]}</a>
-					{:else}
-						<div class="result-row">{row[1]}</div>
-					{/if}
+			<div class="panel-list search-results">
+				{#each result.tracks as row, index}
+					<button class="search-result-row" class:playing-row={row[0] === playingTrackId} on:click={() => playTrack(index)}>
+						<div class="search-result-art">
+							<ImageWithFallback src={coverUrl(row[5])} alt={row[1]} />
+						</div>
+						<span>
+							<strong>{row[1]}</strong>
+							<small>{row[2] ?? 'Unknown artist'} · {row[4] ?? 'Unknown album'}</small>
+						</span>
+						<em>{formatDuration(row[6])}</em>
+					</button>
 				{/each}
 			</div>
 		</div>
 		<div>
 			<SectionHeader title="Albums" eyebrow={`${result.albums.length} results`} />
-			<div class="panel-list">{#each result.albums as row}<a class="result-row" href={`/albums/${row[0]}`}>{row[1]}</a>{/each}</div>
+			<div class="panel-list search-results">
+				{#each result.albums as row}
+					<a class="search-result-row" href={`/albums/${row[0]}`}>
+						<div class="search-result-art">
+							<ImageWithFallback src={coverUrl(row[3])} alt={row[1]} />
+						</div>
+						<span>
+							<strong>{row[1]}</strong>
+							<small>{row[2] ?? 'Unknown artist'}</small>
+						</span>
+					</a>
+				{/each}
+			</div>
 			<SectionHeader title="Artists" eyebrow={`${result.artists.length} results`} />
-			<div class="panel-list">{#each result.artists as row}<a class="result-row" href={`/artists/${row[0]}`}>{row[1]}</a>{/each}</div>
+			<div class="panel-list search-results">
+				{#each result.artists as row}
+					<a class="search-result-row" href={`/artists/${row[0]}`}>
+						<div class="search-result-art artist">
+							<ImageWithFallback src={row[2]} fallbackSrc={coverUrl(row[3])} alt={row[1]} kind="artist" />
+						</div>
+						<span>
+							<strong>{row[1]}</strong>
+						</span>
+					</a>
+				{/each}
+			</div>
 		</div>
 	</section>
 {:else}

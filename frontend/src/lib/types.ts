@@ -121,9 +121,9 @@ export type DiscoveryRefresh = {
 };
 
 export type SearchResult = {
-	tracks: [number, string, number | null][];
-	albums: [number, string][];
-	artists: [number, string][];
+	tracks: [number, string, string | null, number | null, string | null, string | null, number | null][];
+	albums: [number, string, string | null, string | null][];
+	artists: [number, string, string | null, string | null][];
 };
 
 export type PlaylistSummary = {

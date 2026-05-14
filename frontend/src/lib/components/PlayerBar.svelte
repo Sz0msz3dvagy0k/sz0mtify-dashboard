@@ -20,6 +20,7 @@
 		playPrevious,
 		player,
 		queueTrackImage,
+		recordSongHistory,
 		setPlaying,
 		setTime,
 		setVolume,
@@ -207,6 +208,7 @@
 						console.warn('Unable to register now playing', error);
 					});
 			}
+			if (currentTrack?.id === trackId) recordSongHistory(currentTrack);
 		} catch (error) {
 			console.warn('[player] audio.play failed', {
 				trackId,

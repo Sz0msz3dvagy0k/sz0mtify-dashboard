@@ -511,27 +511,57 @@ impl AnalyticsService {
 
     pub async fn search(&self, p: &sqlx::SqlitePool, q: &str) -> anyhow::Result<serde_json::Value> {
         let t = format!("%{}%", q);
-        let tracks = sqlx::query_as::<_, (i64, String, Option<i64>)>(
-            "SELECT id,title,album_id FROM tracks WHERE title LIKE ? LIMIT 30",
+        let tracks = sqlx::query_as::<_, (i64, String, Option<String>, Option<i64>, Option<String>, Option<String>, Option<i64>)>(
+            "SELECT t.id,
+                    t.title,
+                    COALESCE(ar.name, album_artist.name),
+                    t.album_id,
+                    al.title,
+                    al.cover_art_id,
+                    t.duration_seconds
+             FROM tracks t
+             LEFT JOIN artists ar ON ar.id = t.artist_id
+             LEFT JOIN albums al ON al.id = t.album_id
+             LEFT JOIN artists album_artist ON album_artist.id = al.artist_id
+             WHERE t.title LIKE ?
+             ORDER BY COALESCE(t.play_count, 0) DESC, t.title ASC
+             LIMIT 30",
         )
         .bind(&t)
         .fetch_all(p)
         .await?;
-        let albums = sqlx::query_as::<_, (i64, String)>(
-            "SELECT id,title FROM albums WHERE title LIKE ? LIMIT 20",
+        let albums = sqlx::query_as::<_, (i64, String, Option<String>, Option<String>)>(
+            "SELECT al.id, al.title, ar.name, al.cover_art_id
+             FROM albums al
+             LEFT JOIN artists ar ON ar.id = al.artist_id
+             WHERE al.title LIKE ?
+             ORDER BY COALESCE(al.play_count, 0) DESC, al.title ASC
+             LIMIT 20",
         )
         .bind(&t)
         .fetch_all(p)
         .await?;
-        let artists = sqlx::query_as::<_, (i64, String)>(
-            "SELECT id,name
-             FROM artists
-             WHERE name LIKE ?
+        let artists = sqlx::query_as::<_, (i64, String, Option<String>, Option<String>)>(
+            "SELECT ar.id,
+                    ar.name,
+                    ar.image_url,
+                    (
+                        SELECT al.cover_art_id
+                        FROM albums al
+                        WHERE (al.artist_id = ar.id OR al.album_artist_id = ar.id)
+                          AND al.cover_art_id IS NOT NULL
+                          AND al.cover_art_id != ''
+                        ORDER BY COALESCE(al.play_count, 0) DESC, al.id DESC
+                        LIMIT 1
+                    )
+             FROM artists ar
+             WHERE ar.name LIKE ?
                AND (
-                    COALESCE(album_count,0) > 0
-                 OR COALESCE(track_count,0) > 0
-                 OR COALESCE(play_count,0) > 0
+                    COALESCE(ar.album_count,0) > 0
+                 OR COALESCE(ar.track_count,0) > 0
+                 OR COALESCE(ar.play_count,0) > 0
                )
+             ORDER BY COALESCE(ar.play_count, 0) DESC, ar.name ASC
              LIMIT 20",
         )
         .bind(&t)
