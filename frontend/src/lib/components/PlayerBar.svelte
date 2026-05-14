@@ -38,6 +38,7 @@
 	let playerTouchStartTime = 0;
 	let playerDragOffset = 0;
 	let playerDragMode: 'opening' | 'closing' | null = null;
+	let playerPointerId: number | null = null;
 	let suppressNextPlayerClick = false;
 	let mediaSessionTrackId: number | null = null;
 	let streamRequestId = 0;
@@ -240,21 +241,22 @@
 		expanded = true;
 	}
 
-	function handlePlayerTouchStart(event: TouchEvent) {
-		if (event.touches.length !== 1 || isPlayerControlTarget(event.target)) return;
-		const touch = event.touches[0];
-		playerTouchStartX = touch.clientX;
-		playerTouchStartY = touch.clientY;
+	function handlePlayerPointerDown(event: PointerEvent) {
+		if (event.pointerType === 'mouse' || isPlayerControlTarget(event.target)) return;
+		const target = event.currentTarget;
+		if (target instanceof HTMLElement) target.setPointerCapture(event.pointerId);
+		playerPointerId = event.pointerId;
+		playerTouchStartX = event.clientX;
+		playerTouchStartY = event.clientY;
 		playerTouchStartTime = performance.now();
 		playerDragOffset = expanded ? 0 : closedPlayerOffset();
 		playerDragMode = null;
 	}
 
-	function handlePlayerTouchMove(event: TouchEvent) {
-		if (event.touches.length !== 1) return;
-		const touch = event.touches[0];
-		const deltaX = touch.clientX - playerTouchStartX;
-		const deltaY = touch.clientY - playerTouchStartY;
+	function handlePlayerPointerMove(event: PointerEvent) {
+		if (playerPointerId !== event.pointerId) return;
+		const deltaX = event.clientX - playerTouchStartX;
+		const deltaY = event.clientY - playerTouchStartY;
 		if (Math.abs(deltaX) > 80 || Math.abs(deltaY) < 8) return;
 
 		if (!playerDragMode) {
@@ -277,14 +279,14 @@
 		}
 	}
 
-	function handlePlayerTouchEnd(event: TouchEvent) {
-		if (event.changedTouches.length !== 1 || !playerDragMode) {
-			playerDragMode = null;
-			playerDragOffset = 0;
+	function handlePlayerPointerUp(event: PointerEvent) {
+		if (playerPointerId !== event.pointerId) return;
+		playerPointerId = null;
+		if (!playerDragMode) {
+			resetPlayerDrag();
 			return;
 		}
-		const touch = event.changedTouches[0];
-		const deltaY = touch.clientY - playerTouchStartY;
+		const deltaY = event.clientY - playerTouchStartY;
 		const elapsed = Math.max(1, performance.now() - playerTouchStartTime);
 		const velocity = deltaY / elapsed;
 		const closedOffset = closedPlayerOffset();
@@ -298,9 +300,10 @@
 		playerDragOffset = 0;
 	}
 
-	function handlePlayerTouchCancel() {
+	function resetPlayerDrag() {
 		playerDragMode = null;
 		playerDragOffset = 0;
+		playerPointerId = null;
 	}
 
 	function closedPlayerOffset() {
@@ -379,10 +382,10 @@
 		style={playerDragStyle}
 		on:click={toggleExpanded}
 		on:keydown={(event) => (event.key === 'Enter' || event.key === ' ') && toggleExpanded(event)}
-		on:touchstart={handlePlayerTouchStart}
-		on:touchmove={handlePlayerTouchMove}
-		on:touchend={handlePlayerTouchEnd}
-		on:touchcancel={handlePlayerTouchCancel}
+		on:pointerdown={handlePlayerPointerDown}
+		on:pointermove={handlePlayerPointerMove}
+		on:pointerup={handlePlayerPointerUp}
+		on:pointercancel={resetPlayerDrag}
 		role="button"
 		tabindex="0"
 	>
@@ -451,9 +454,14 @@
 			<div class="queue-panel">
 				<header>Queue</header>
 				{#each $player.queue as track, index}
-					<button class:active={index === $player.currentIndex} on:click={() => playIndex(index)}>
-						<span>{track.title}</span>
-						<small>{track.artist}</small>
+					<button class:active={index === $player.currentIndex} on:click|stopPropagation={() => playIndex(index)}>
+						<div class="queue-art">
+							<ImageWithFallback src={queueTrackImage(track)} alt={track.title} />
+						</div>
+						<span>
+							<strong>{track.title}</strong>
+							<small>{track.artist}</small>
+						</span>
 					</button>
 				{/each}
 			</div>
