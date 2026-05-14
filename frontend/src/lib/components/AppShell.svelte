@@ -131,6 +131,7 @@
 	async function submitSearch() {
 		const query = searchValue.trim();
 		if (!query) return;
+		if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
 		closeSearch();
 		await goto(`/search?q=${encodeURIComponent(query)}`);
 	}

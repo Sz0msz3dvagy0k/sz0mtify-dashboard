@@ -149,12 +149,10 @@ async function streamToken() {
 }
 
 export async function streamUrl(trackId: number) {
-	console.debug('[player] requesting stream token', { trackId });
 	const [token, networkType] = await Promise.all([streamToken(), currentNetworkType()]);
 	const params = new URLSearchParams();
 	if (networkType !== 'unknown') params.set('network', networkType);
 	const query = params.toString();
-	console.debug('[player] stream token issued', { trackId, networkType });
 	return withStreamToken(`${apiBase()}/api/tracks/${trackId}/stream${query ? `?${query}` : ''}`, token);
 }
 

@@ -42,6 +42,7 @@
 	let playerPointerId: number | null = null;
 	let suppressNextPlayerClick = false;
 	let mediaSessionTrackId: number | null = null;
+	let playRequestTrackId: number | null = null;
 	let streamRequestId = 0;
 	$: currentTrack = $player.queue[$player.currentIndex] ?? null;
 	$: progress = $player.duration > 0 ? ($player.currentTime / $player.duration) * 100 : 0;
@@ -57,7 +58,7 @@
 		audio.volume = $player.volume;
 	}
 
-	$: if (audio && currentTrack && $player.isPlaying && audio.paused) {
+	$: if (audio && currentTrack && $player.isPlaying && audio.paused && audio.readyState >= HTMLMediaElement.HAVE_METADATA) {
 		void playAudio(currentTrack.id);
 	}
 
@@ -179,13 +180,11 @@
 
 	async function loadTrackStream(trackId: number, requestId: number) {
 		try {
-			console.debug('[player] loading stream', { trackId });
 			const src = await streamUrl(trackId);
 			if (requestId !== streamRequestId || currentTrack?.id !== trackId) return;
 			audio.src = src;
 			audio.load();
 			if ($player.isPlaying) pendingAutoplayTrackId = trackId;
-			if ($player.isPlaying) void playAudio(trackId);
 		} catch (error) {
 			console.warn('[player] stream load failed', { trackId, error });
 			if (requestId === streamRequestId) setPlaying(false);
@@ -193,11 +192,16 @@
 	}
 
 	async function playAudio(trackId: number) {
+		if (playRequestTrackId === trackId || currentTrack?.id !== trackId) return;
+		if (audio.readyState < HTMLMediaElement.HAVE_METADATA) {
+			pendingAutoplayTrackId = trackId;
+			return;
+		}
+
+		playRequestTrackId = trackId;
 		try {
-			console.debug('[player] play requested', { trackId, readyState: audio.readyState, networkState: audio.networkState });
 			await audio.play();
 			pendingAutoplayTrackId = null;
-			console.debug('[player] playback started', { trackId });
 			if (registeredTrackId !== trackId) {
 				await api
 					.nowPlaying(trackId)
@@ -223,6 +227,8 @@
 			}
 			pendingAutoplayTrackId = null;
 			setPlaying(false);
+		} finally {
+			if (playRequestTrackId === trackId) playRequestTrackId = null;
 		}
 	}
 
@@ -318,13 +324,22 @@
 	}
 
 	function logAudioEvent(eventName: string) {
-		console.debug(`[player] audio ${eventName}`, {
+		debugPlayer(`[player] audio ${eventName}`, {
 			trackId: currentTrack?.id ?? null,
 			currentSrc: redactStreamToken(audio.currentSrc),
 			networkState: audio.networkState,
 			readyState: audio.readyState,
 			mediaError: describeMediaError(audio.error)
 		});
+	}
+
+	function debugPlayer(message: string, data: unknown) {
+		try {
+			if (!browser || localStorage.getItem('archive.debugPlayer') !== '1') return;
+			console.debug(message, data);
+		} catch {
+			return;
+		}
 	}
 
 	function logAudioError() {
