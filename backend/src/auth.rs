@@ -27,7 +27,9 @@ pub struct AppAuth {
     username: String,
     password_hash: [u8; 32],
     sessions: Arc<Mutex<HashMap<String, Session>>>,
+    stream_tokens: Arc<Mutex<HashMap<String, Session>>>,
     session_ttl: Duration,
+    stream_token_ttl: Duration,
 }
 
 #[derive(Clone)]
@@ -39,6 +41,12 @@ struct Session {
 #[derive(Clone, Serialize)]
 pub struct AuthSession {
     pub username: String,
+    pub token: String,
+    pub expires_at: u64,
+}
+
+#[derive(Clone, Serialize)]
+pub struct StreamToken {
     pub token: String,
     pub expires_at: u64,
 }
@@ -67,12 +75,21 @@ impl AppAuth {
                 .unwrap_or(24 * 30)
                 * 3600,
         );
+        let stream_token_ttl = Duration::from_secs(
+            env::var("APP_STREAM_TOKEN_TTL_SECONDS")
+                .ok()
+                .and_then(|value| value.parse::<u64>().ok())
+                .filter(|seconds| *seconds > 0)
+                .unwrap_or(300),
+        );
 
         Ok(Self {
             username,
             password_hash,
             sessions: Arc::new(Mutex::new(HashMap::new())),
+            stream_tokens: Arc::new(Mutex::new(HashMap::new())),
             session_ttl,
+            stream_token_ttl,
         })
     }
 
@@ -111,6 +128,29 @@ impl AppAuth {
             username: session.username.clone(),
         })
     }
+
+    pub async fn issue_stream_token(&self, username: &str) -> StreamToken {
+        let token = generate_token();
+        let expires_at = now_unix() + self.stream_token_ttl.as_secs();
+        self.stream_tokens.lock().await.insert(
+            token.clone(),
+            Session {
+                username: username.to_string(),
+                expires_at,
+            },
+        );
+
+        StreamToken { token, expires_at }
+    }
+
+    pub async fn authenticate_stream_token(&self, token: &str) -> Option<AuthUser> {
+        let now = now_unix();
+        let mut tokens = self.stream_tokens.lock().await;
+        tokens.retain(|_, session| session.expires_at > now);
+        tokens.get(token).map(|session| AuthUser {
+            username: session.username.clone(),
+        })
+    }
 }
 
 pub async fn require_app_session(
@@ -123,11 +163,18 @@ pub async fn require_app_session(
         return next.run(request).await;
     }
 
-    let Some(token) = request_token(&request) else {
-        return unauthorized_response();
+    let user = if let Some(token) = bearer_token(request.headers()) {
+        auth.authenticate(token).await
+    } else if is_stream_path(path) {
+        match stream_token_query(request.uri().query()) {
+            Some(token) => auth.authenticate_stream_token(&token).await,
+            None => None,
+        }
+    } else {
+        None
     };
 
-    let Some(user) = auth.authenticate(&token).await else {
+    let Some(user) = user else {
         return unauthorized_response();
     };
 
@@ -144,18 +191,16 @@ pub fn bearer_token(headers: &HeaderMap) -> Option<&str> {
         .filter(|value| !value.is_empty())
 }
 
-fn request_token(request: &Request<Body>) -> Option<String> {
-    bearer_token(request.headers())
-        .map(str::to_string)
-        .or_else(|| access_token_query(request.uri().query()))
+fn is_stream_path(path: &str) -> bool {
+    path.starts_with("/api/tracks/") && path.ends_with("/stream")
 }
 
-fn access_token_query(query: Option<&str>) -> Option<String> {
+fn stream_token_query(query: Option<&str>) -> Option<String> {
     query?
         .split('&')
         .filter_map(|pair| pair.split_once('='))
         .find_map(|(key, value)| {
-            (key == "access_token" && !value.is_empty()).then(|| value.to_string())
+            (key == "stream_token" && !value.is_empty()).then(|| value.to_string())
         })
 }
 
@@ -223,7 +268,9 @@ mod tests {
             username: "admin".to_string(),
             password_hash: hash_password("secret"),
             sessions: Arc::new(Mutex::new(HashMap::new())),
+            stream_tokens: Arc::new(Mutex::new(HashMap::new())),
             session_ttl: Duration::from_secs(60),
+            stream_token_ttl: Duration::from_secs(60),
         };
 
         assert!(auth.login("admin", "wrong").await.is_none());
@@ -236,6 +283,33 @@ mod tests {
 
         auth.logout(&session.token).await;
         assert!(auth.authenticate(&session.token).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn stream_tokens_are_separate_from_session_tokens() {
+        let auth = AppAuth {
+            username: "admin".to_string(),
+            password_hash: hash_password("secret"),
+            sessions: Arc::new(Mutex::new(HashMap::new())),
+            stream_tokens: Arc::new(Mutex::new(HashMap::new())),
+            session_ttl: Duration::from_secs(60),
+            stream_token_ttl: Duration::from_secs(60),
+        };
+
+        let session = auth.login("admin", "secret").await.unwrap();
+        assert!(auth
+            .authenticate_stream_token(&session.token)
+            .await
+            .is_none());
+
+        let stream_token = auth.issue_stream_token("admin").await;
+        assert_eq!(
+            auth.authenticate_stream_token(&stream_token.token)
+                .await
+                .unwrap()
+                .username,
+            "admin"
+        );
     }
 
     #[test]

@@ -10,6 +10,11 @@ export type AuthUser = {
 	username: string;
 };
 
+export type StreamToken = {
+	token: string;
+	expires_at: number;
+};
+
 export type Overview = {
 	total_tracks: number;
 	total_albums: number;

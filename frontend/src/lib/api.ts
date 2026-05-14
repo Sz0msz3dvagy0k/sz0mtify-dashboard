@@ -17,6 +17,7 @@ import type {
 	PlaylistDetail,
 	PlaylistSummary,
 	SearchResult,
+	StreamToken,
 	StorageStats,
 	SyncStatus,
 	TrackTuple
@@ -58,6 +59,7 @@ export const api = {
 		request<AuthSession>('/api/auth/login', { method: 'POST', body: JSON.stringify(body) }),
 	logout: () => request<{ status: string }>('/api/auth/logout', { method: 'POST' }),
 	me: () => request<AuthUser>('/api/auth/me'),
+	streamToken: () => request<StreamToken>('/api/auth/stream-token', { method: 'POST' }),
 	settings: () => request<[string, string][]>('/api/settings'),
 	saveSettings: (body: Record<string, unknown>) =>
 		request<Record<string, unknown>>('/api/settings', { method: 'POST', body: JSON.stringify(body) }),

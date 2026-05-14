@@ -10,6 +10,8 @@ const allowedHosts = [
 ];
 
 export default defineConfig({
+	envDir: '..',
+	envPrefix: ['VITE_', 'FRONTEND_'],
 	plugins: [sveltekit()],
 	server: {
 		allowedHosts

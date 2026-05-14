@@ -6,13 +6,19 @@
   "scripts": {
     "dev": "svelte-kit sync && vite dev",
     "build": "vite build",
+    "build:mobile": "vite build && cap sync ios",
+    "cap:add:ios": "cap add ios",
+    "cap:sync": "cap sync",
+    "cap:open:ios": "cap open ios",
+    "cap:ios": "npm run build:mobile && cap open ios",
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "lint": "eslint .",
     "format": "prettier --write ."
   },
   "devDependencies": {
-    "@sveltejs/adapter-node": "^5.5.4",
+    "@capacitor/cli": "^8.3.4",
+    "@sveltejs/adapter-static": "^3.0.10",
     "@sveltejs/kit": "^2.0.0",
     "@types/node": "^25.6.2",
     "eslint": "^9.0.0",
@@ -23,6 +29,8 @@
     "vite": "^8.0.0"
   },
   "dependencies": {
+    "@capacitor/core": "^8.3.4",
+    "@capacitor/ios": "^8.3.4",
     "date-fns": "^4.0.0",
     "echarts": "^5.5.0",
     "lucide-svelte": "^0.460.0"
