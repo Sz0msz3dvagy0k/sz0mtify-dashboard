@@ -35,11 +35,16 @@
 	let expanded = false;
 	let playerTouchStartY = 0;
 	let playerTouchStartX = 0;
+	let playerTouchStartTime = 0;
+	let playerDragOffset = 0;
+	let playerDragMode: 'opening' | 'closing' | null = null;
 	let suppressNextPlayerClick = false;
 	let mediaSessionTrackId: number | null = null;
 	let streamRequestId = 0;
 	$: currentTrack = $player.queue[$player.currentIndex] ?? null;
 	$: progress = $player.duration > 0 ? ($player.currentTime / $player.duration) * 100 : 0;
+	$: visualExpanded = expanded || playerDragMode !== null;
+	$: playerDragStyle = playerDragMode ? `transform: translate3d(0, ${Math.round(playerDragOffset)}px, 0);` : '';
 
 	$: if (audio && currentTrack && currentTrack.id !== lastTrackId) {
 		lastTrackId = currentTrack.id;
@@ -141,6 +146,8 @@
 			pause: () => setPlaying(false),
 			previoustrack: playPrevious,
 			nexttrack: playNext,
+			seekbackward: playPrevious,
+			seekforward: playNext,
 			seekto: (details) => {
 				if (!audio || typeof details.seekTime !== 'number') return;
 				audio.currentTime = details.seekTime;
@@ -238,23 +245,70 @@
 		const touch = event.touches[0];
 		playerTouchStartX = touch.clientX;
 		playerTouchStartY = touch.clientY;
+		playerTouchStartTime = performance.now();
+		playerDragOffset = expanded ? 0 : closedPlayerOffset();
+		playerDragMode = null;
+	}
+
+	function handlePlayerTouchMove(event: TouchEvent) {
+		if (event.touches.length !== 1) return;
+		const touch = event.touches[0];
+		const deltaX = touch.clientX - playerTouchStartX;
+		const deltaY = touch.clientY - playerTouchStartY;
+		if (Math.abs(deltaX) > 80 || Math.abs(deltaY) < 8) return;
+
+		if (!playerDragMode) {
+			if (!expanded && deltaY < 0) {
+				playerDragMode = 'opening';
+				suppressNextPlayerClick = true;
+			} else if (expanded && deltaY > 0) {
+				playerDragMode = 'closing';
+				suppressNextPlayerClick = true;
+			} else {
+				return;
+			}
+		}
+
+		event.preventDefault();
+		if (playerDragMode === 'opening') {
+			playerDragOffset = clamp(closedPlayerOffset() + deltaY, 0, closedPlayerOffset());
+		} else {
+			playerDragOffset = clamp(deltaY, 0, closedPlayerOffset());
+		}
 	}
 
 	function handlePlayerTouchEnd(event: TouchEvent) {
-		if (event.changedTouches.length !== 1) return;
+		if (event.changedTouches.length !== 1 || !playerDragMode) {
+			playerDragMode = null;
+			playerDragOffset = 0;
+			return;
+		}
 		const touch = event.changedTouches[0];
-		const deltaX = touch.clientX - playerTouchStartX;
 		const deltaY = touch.clientY - playerTouchStartY;
-		if (Math.abs(deltaX) > 80 || Math.abs(deltaY) < 56) return;
+		const elapsed = Math.max(1, performance.now() - playerTouchStartTime);
+		const velocity = deltaY / elapsed;
+		const closedOffset = closedPlayerOffset();
+		const progress = 1 - playerDragOffset / closedOffset;
 
-		if (!expanded && deltaY < 0) {
-			expanded = true;
-			suppressNextPlayerClick = true;
-		}
-		if (expanded && deltaY > 0) {
-			expanded = false;
-			suppressNextPlayerClick = true;
-		}
+		expanded = playerDragMode === 'opening'
+			? progress > 0.34 || velocity < -0.45
+			: !(progress < 0.66 || velocity > 0.45);
+		playerDragMode = null;
+		playerDragOffset = 0;
+	}
+
+	function handlePlayerTouchCancel() {
+		playerDragMode = null;
+		playerDragOffset = 0;
+	}
+
+	function closedPlayerOffset() {
+		if (!browser) return 640;
+		return Math.max(220, window.innerHeight - 92);
+	}
+
+	function clamp(value: number, min: number, max: number) {
+		return Math.min(Math.max(value, min), max);
 	}
 
 	function logAudioEvent(eventName: string) {
@@ -319,15 +373,19 @@
 {#if currentTrack}
 	<div
 		class="player-bar"
-		class:expanded
+		class:expanded={visualExpanded}
+		class:dragging={playerDragMode !== null}
+		style={playerDragStyle}
 		on:click={toggleExpanded}
 		on:keydown={(event) => (event.key === 'Enter' || event.key === ' ') && toggleExpanded(event)}
 		on:touchstart={handlePlayerTouchStart}
+		on:touchmove={handlePlayerTouchMove}
 		on:touchend={handlePlayerTouchEnd}
+		on:touchcancel={handlePlayerTouchCancel}
 		role="button"
 		tabindex="0"
 	>
-		{#if expanded}
+		{#if visualExpanded}
 			<button class="player-collapse" aria-label="Collapse player" on:click|stopPropagation={() => (expanded = false)}>×</button>
 			<div class="player-expanded-art">
 				<ImageWithFallback src={queueTrackImage(currentTrack)} alt={currentTrack.title} />

@@ -393,6 +393,12 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 	backdrop-filter: blur(18px);
 	box-shadow: 0 18px 60px rgba(0,0,0,.45);
 	cursor: pointer;
+	touch-action: pan-y;
+	transition:
+		inset .28s ease,
+		min-height .28s ease,
+		border-radius .28s ease,
+		transform .28s cubic-bezier(.22, 1, .36, 1);
 }
 .player-bar.expanded {
 	top: max(18px, env(safe-area-inset-top));
@@ -404,6 +410,7 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 	padding: 28px;
 	cursor: default;
 }
+.player-bar.dragging { transition: none; }
 .player-compact {
 	display: grid;
 	grid-template-columns: 48px minmax(0, 1fr) 38px 38px;
@@ -422,12 +429,19 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 	border-radius: 8px;
 	background: #181818;
 }
-.player-expanded-main { min-width: 0; display: grid; align-content: center; gap: 24px; }
+.player-expanded-main {
+	min-width: 0;
+	min-height: 100%;
+	display: flex;
+	flex-direction: column;
+	justify-content: flex-start;
+	gap: 18px;
+}
 .player-expanded-title strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: clamp(34px, 6vw, 72px); line-height: .95; }
 .player-expanded-title span { display: block; margin-top: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #a3a3a3; }
 .player-collapse {
 	position: absolute;
-	top: 10px;
+	top: calc(max(10px, env(safe-area-inset-top)) + 12px);
 	right: 10px;
 	width: 34px;
 	height: 34px;
@@ -439,6 +453,7 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 	line-height: 1;
 }
 .player-center { display: grid; gap: 8px; }
+.player-bar.expanded .player-center { margin-top: auto; padding-top: 48px; }
 .player-buttons { display: flex; justify-content: center; gap: 8px; }
 .player-progress { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; gap: 8px; align-items: center; color: #8a8a8a; font-size: 12px; }
 .player-progress input, .volume-control input { width: 100%; accent-color: #f5f5f5; }
@@ -560,6 +575,7 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 	}
 	.player-expanded-title { text-align: center; }
 	.player-expanded-title strong { white-space: normal; font-size: clamp(30px, 9vw, 46px); }
+	.player-bar.expanded .player-center { padding-top: 56px; }
 	.player-actions { justify-content: space-between; }
 	.settings-panel { grid-template-columns: 1fr; align-items: stretch; }
 }
