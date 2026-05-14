@@ -4,9 +4,9 @@
 	import type { AlbumTuple, ArtistTuple, StorageStats } from '$lib/types';
 	import AlbumCard from '$lib/components/AlbumCard.svelte';
 	import ChartCard from '$lib/components/ChartCard.svelte';
-	import DataTable from '$lib/components/DataTable.svelte';
 	import EmptyState from '$lib/components/EmptyState.svelte';
 	import ErrorState from '$lib/components/ErrorState.svelte';
+	import ExpandableTable from '$lib/components/ExpandableTable.svelte';
 	import FilterBar from '$lib/components/FilterBar.svelte';
 	import ItemsPerPage from '$lib/components/ItemsPerPage.svelte';
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
@@ -37,14 +37,42 @@
 	}
 
 	$: artistMap = new Map(artists.map(([id, name]) => [id, name]));
+	$: albumStorageMap = new Map((storage?.size_by_album ?? []).filter((row) => row[0] !== null).map((row) => [row[0] as number, { bytes: row[3], tracks: row[4] }]));
 	$: filtered = albums
 		.filter((album) => `${album[1]} ${artistMap.get(album[2] ?? -1) ?? ''} ${album[4] ?? ''}`.toLowerCase().includes(filter.toLowerCase()))
-		.sort((a, b) => sort === 'year' ? (b[3] ?? 0) - (a[3] ?? 0) : a[1].localeCompare(b[1]));
+		.sort((a, b) => {
+			switch (sort) {
+				case 'title-desc':
+					return b[1].localeCompare(a[1]);
+				case 'artist':
+					return (artistMap.get(a[2] ?? -1) ?? '').localeCompare(artistMap.get(b[2] ?? -1) ?? '') || a[1].localeCompare(b[1]);
+				case 'year-new':
+					return (b[3] ?? 0) - (a[3] ?? 0) || a[1].localeCompare(b[1]);
+				case 'year-old':
+					return (a[3] ?? 9999) - (b[3] ?? 9999) || a[1].localeCompare(b[1]);
+				case 'genre':
+					return (a[4] ?? '').localeCompare(b[4] ?? '') || a[1].localeCompare(b[1]);
+				case 'size':
+					return (albumStorageMap.get(b[0])?.bytes ?? 0) - (albumStorageMap.get(a[0])?.bytes ?? 0);
+				case 'tracks':
+					return (albumStorageMap.get(b[0])?.tracks ?? 0) - (albumStorageMap.get(a[0])?.tracks ?? 0);
+				default:
+					return a[1].localeCompare(b[1]);
+			}
+		});
 	$: largest = storage?.largest_albums.slice(0, 12) ?? [];
 	$: pageStart = (page - 1) * itemsPerPage;
 	$: visibleAlbums = filtered.slice(pageStart, pageStart + itemsPerPage);
-	$: largestTableRows = largest.slice(0, 8).map((a) => [a[1], artistMap.get(a[2] ?? -1) ?? 'Unknown', formatBytes(a[3]), a[4]]);
-	$: largestTableLinks = largest.slice(0, 8).map((a) => [a[0] ? `/albums/${a[0]}` : null, null, null, null]);
+	$: largestTableRows = largest.slice(0, 8).map((a, index) => ({
+		id: a[0] ?? `album-${index}`,
+		title: a[1] ?? 'Unknown album',
+		href: a[0] ? `/albums/${a[0]}` : null,
+		details: [
+			['Artist', artistMap.get(a[2] ?? -1) ?? 'Unknown'],
+			['Size', formatBytes(a[3])],
+			['Tracks', a[4]]
+		] as [string, string | number | null | undefined][]
+	}));
 	$: if (page > Math.max(1, Math.ceil(filtered.length / itemsPerPage))) page = 1;
 
 	onMount(load);
@@ -64,8 +92,14 @@
 	<div class="toolbar">
 		<FilterBar bind:value={filter} placeholder="Filter albums, artists, genres" />
 		<select bind:value={sort}>
-			<option value="title">Title</option>
-			<option value="year">Year</option>
+			<option value="title">Title A-Z</option>
+			<option value="title-desc">Title Z-A</option>
+			<option value="artist">Artist</option>
+			<option value="year-new">Newest Year</option>
+			<option value="year-old">Oldest Year</option>
+			<option value="genre">Genre</option>
+			<option value="size">Largest Size</option>
+			<option value="tracks">Most Tracks</option>
 		</select>
 	</div>
 
@@ -78,7 +112,7 @@
 				series: [{ type: 'bar', data: largest.slice(0, 8).map((a) => a[3]).reverse(), color: '#e5e5e5' }]
 			}}
 		/>
-		<DataTable columns={['Album', 'Artist', 'Size', 'Tracks']} rows={largestTableRows} cellLinks={largestTableLinks} />
+		<ExpandableTable title="Largest Albums" rows={largestTableRows} />
 	</section>
 
 	<SectionHeader title="Album Grid" eyebrow={`${filtered.length} matches`} />

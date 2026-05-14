@@ -3,9 +3,9 @@
 	import { api } from '$lib/api';
 	import type { StorageStats } from '$lib/types';
 	import ChartCard from '$lib/components/ChartCard.svelte';
-	import DataTable from '$lib/components/DataTable.svelte';
 	import EmptyState from '$lib/components/EmptyState.svelte';
 	import ErrorState from '$lib/components/ErrorState.svelte';
+	import ExpandableTable from '$lib/components/ExpandableTable.svelte';
 	import StatCard from '$lib/components/StatCard.svelte';
 	import { formatBytes } from '$lib/format';
 
@@ -25,6 +25,33 @@
 	onMount(load);
 	$: rankedArtists = storage?.size_by_artist.slice(0, 16).reverse() ?? [];
 	$: rankedExtensions = storage?.extension_breakdown.slice(0, 12).reverse() ?? [];
+	$: largestAlbumRows = storage?.largest_albums.slice(0, 12).map((album, index) => ({
+		id: album[0] ?? `album-${index}`,
+		title: album[1] ?? 'Unknown album',
+		href: album[0] ? `/albums/${album[0]}` : null,
+		details: [
+			['Size', formatBytes(album[3])],
+			['Tracks', album[4]]
+		] as [string, string | number | null | undefined][]
+	})) ?? [];
+	$: largestTrackRows = storage?.largest_tracks.slice(0, 12).map((track) => ({
+		id: track[0],
+		title: track[1],
+		href: track[3] ? `/albums/${track[3]}?track=${track[0]}` : null,
+		details: [
+			['Size', formatBytes(track[4])],
+			['Format', track[6] ?? track[7] ?? '—']
+		] as [string, string | number | null | undefined][]
+	})) ?? [];
+	$: suspiciousTrackRows = storage?.suspicious_large_tracks.map((track) => ({
+		id: track[0],
+		title: track[1],
+		href: track[3] ? `/albums/${track[3]}?track=${track[0]}` : null,
+		details: [
+			['Size', formatBytes(track[2])],
+			['Format', track[4] ?? '—']
+		] as [string, string | number | null | undefined][]
+	})) ?? [];
 </script>
 
 {#if loading}
@@ -43,9 +70,10 @@
 			title="Storage by Artist"
 			option={{
 				grid: { left: 132, right: 28, top: 18, bottom: 28 },
-				xAxis: { type: 'value', axisLabel: { color: '#8a8a8a', formatter: (value: number) => formatBytes(value) }, splitLine: { lineStyle: { color: '#262626' } } },
+				xAxis: { type: 'value', axisLabel: { color: '#8a8a8a', formatter: (value: number) => `${value} MB` }, splitLine: { lineStyle: { color: '#262626' } } },
 				yAxis: { type: 'category', data: rankedArtists.map(([, name]) => name ?? 'Unknown'), axisLabel: { color: '#a3a3a3' } },
-				series: [{ type: 'bar', data: rankedArtists.map(([, , bytes]) => bytes), color: '#f5f5f5' }]
+				series: [{ type: 'bar', data: rankedArtists.map(([, , bytes]) => Number((bytes / 1024 ** 2).toFixed(1))), color: '#f5f5f5' }],
+				tooltip: { valueFormatter: (value: number) => `${value.toFixed(1)} MB` }
 			}}
 			height={360}
 		/>
@@ -59,10 +87,10 @@
 			}}
 		/>
 	</section>
-	<DataTable columns={['Largest Album', 'Size', 'Tracks']} rows={storage.largest_albums.slice(0, 12).map((a) => [a[1], formatBytes(a[3]), a[4]])} />
-	<DataTable columns={['Largest Track', 'Size', 'Format']} rows={storage.largest_tracks.slice(0, 12).map((t) => [t[1], formatBytes(t[4]), t[6] ?? t[7] ?? '—'])} />
+	<ExpandableTable title="Largest Albums" rows={largestAlbumRows} />
+	<ExpandableTable title="Largest Tracks" rows={largestTrackRows} />
 	{#if storage.suspicious_large_tracks.length}
-		<DataTable columns={['Suspicious Track', 'Size', 'Format']} rows={storage.suspicious_large_tracks.map((t) => [t[1], formatBytes(t[2]), t[4] ?? '—'])} />
+		<ExpandableTable title="Suspicious Tracks" rows={suspiciousTrackRows} />
 	{:else}
 		<EmptyState title="No suspicious large files" />
 	{/if}

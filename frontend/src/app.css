@@ -165,7 +165,7 @@ button { cursor: pointer; }
 .art-fallback.artist { border-radius: 999px; width: 86%; height: 86%; margin: 7%; border: 1px solid #333; }
 .art-fallback span { font-size: 13px; color: #737373; }
 .media-body { padding: 12px; display: grid; gap: 5px; }
-.media-body strong, .track-row strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.media-body strong, .track-row strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .media-body span, .media-body em, .track-row span, .track-row em, .muted { color: #8a8a8a; font-style: normal; font-size: 13px; }
 
 .discovery-card {
@@ -187,14 +187,85 @@ button { cursor: pointer; }
 
 .table-wrap { overflow: auto; margin-top: 16px; }
 table { width: 100%; border-collapse: collapse; min-width: 560px; }
+.track-table { min-width: 0; table-layout: fixed; }
+.track-table th:first-child, .track-table td:first-child { width: 48px; }
+.track-table th:nth-child(2), .track-table td:nth-child(2), .track-table th:nth-child(4), .track-table td:nth-child(4) { width: 54px; }
 th, td { padding: 12px 14px; border-bottom: 1px solid #262626; text-align: left; font-size: 13px; }
 th { color: #737373; text-transform: uppercase; letter-spacing: .12em; }
 tr:hover td { background: #141414; }
 .track-table tbody tr { cursor: pointer; }
+.track-table td:nth-child(3) {
+	max-width: 1px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
 tr.highlight-row td { background: rgba(255,255,255,.16); transition: background .25s ease; }
 tr.playing-row td { background: rgba(245,245,245,.11); transition: background .25s ease; }
 .table-link { display: inline-flex; align-items: center; min-height: 24px; border-bottom: 1px solid #525252; }
 .table-link:hover { color: #fff; border-color: #f5f5f5; }
+.expandable-table {
+	display: grid;
+	gap: 8px;
+	margin-top: 16px;
+	border: 1px solid #262626;
+	border-radius: 8px;
+	background: #101010;
+	padding: 10px;
+}
+.expandable-table > header {
+	padding: 4px 6px 8px;
+	color: #737373;
+	text-transform: uppercase;
+	font-size: 11px;
+	letter-spacing: .16em;
+}
+.expandable-table article {
+	border: 1px solid transparent;
+	border-radius: 6px;
+	background: #0a0a0a;
+}
+.expandable-table article.open { border-color: #333; background: #111; }
+.expandable-table-main {
+	min-height: 46px;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) 34px;
+	align-items: center;
+	gap: 10px;
+	padding: 6px 6px 6px 10px;
+}
+.expandable-table-main strong, .expandable-table-main .table-link {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.expand-toggle { color: #fff; }
+.expandable-table-details {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+	gap: 8px;
+	padding: 0 10px 10px;
+}
+.expandable-table-details div {
+	display: grid;
+	gap: 3px;
+	padding-top: 8px;
+	border-top: 1px solid #262626;
+}
+.expandable-table-details span {
+	color: #737373;
+	text-transform: uppercase;
+	font-size: 11px;
+	letter-spacing: .12em;
+}
+.expandable-table-details strong {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 13px;
+}
 .track-row, .result-row {
 	min-height: 48px;
 	display: flex;
@@ -370,6 +441,7 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 .playable-row.playlist-row { grid-template-columns: 42px 44px minmax(0, 1fr); }
 .playable-row.playing-row { background: rgba(245,245,245,.11); transition: background .25s ease; }
 .playable-row .track-row { border-bottom: 0; }
+.playable-row .track-row, .track-row > div { min-width: 0; }
 .playlist-track-art { width: 44px; height: 44px; overflow: hidden; border: 1px solid #262626; border-radius: 6px; background: #181818; }
 .playing-indicator { width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; gap: 3px; border: 1px solid #525252; border-radius: 999px; color: #f5f5f5; }
 .playing-indicator span { width: 3px; height: 12px; border-radius: 999px; background: currentColor; animation: playing-bars .78s ease-in-out infinite; opacity: .88; }

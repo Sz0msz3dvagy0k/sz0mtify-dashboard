@@ -4,8 +4,8 @@
 	import type { AlbumTuple, ArtistTuple, DiscoveryList, StorageStats } from '$lib/types';
 	import ArtistCard from '$lib/components/ArtistCard.svelte';
 	import ChartCard from '$lib/components/ChartCard.svelte';
-	import DataTable from '$lib/components/DataTable.svelte';
 	import ErrorState from '$lib/components/ErrorState.svelte';
+	import ExpandableTable from '$lib/components/ExpandableTable.svelte';
 	import FilterBar from '$lib/components/FilterBar.svelte';
 	import ItemsPerPage from '$lib/components/ItemsPerPage.svelte';
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
@@ -36,13 +36,20 @@
 	}
 
 	$: filtered = artists.filter((artist) => artist[1].toLowerCase().includes(filter.toLowerCase()));
-	$: topByTracks = [...artists].sort((a, b) => (b[3] ?? 0) - (a[3] ?? 0)).slice(0, 10);
 	$: representativeAlbumByArtist = new Map(
 		albums.filter((album) => album[2] !== null).map((album) => [album[2] as number, album[0]])
 	);
 	$: storageArtistRows = storage?.size_by_artist.slice(0, 10) ?? [];
-	$: storageArtistTableRows = storageArtistRows.map((row) => [row[1], formatBytes(row[2]), row[3]]);
-	$: storageArtistTableLinks = storageArtistRows.map((row) => [row[0] ? `/artists/${row[0]}` : null, null, null]);
+	$: storageArtistChartRows = [...storageArtistRows].reverse();
+	$: storageArtistTableRows = storageArtistRows.map((row, index) => ({
+		id: row[0] ?? `artist-${index}`,
+		title: row[1] ?? 'Unknown artist',
+		href: row[0] ? `/artists/${row[0]}` : null,
+		details: [
+			['Storage', formatBytes(row[2])],
+			['Tracks', row[3]]
+		] as [string, string | number | null | undefined][]
+	}));
 	$: pageStart = (page - 1) * itemsPerPage;
 	$: visibleArtists = filtered.slice(pageStart, pageStart + itemsPerPage);
 	$: if (page > Math.max(1, Math.ceil(filtered.length / itemsPerPage))) page = 1;
@@ -63,14 +70,15 @@
 
 	<section class="dashboard-grid">
 		<ChartCard
-			title="Track Depth"
+			title="Storage by Artist"
 			option={{
-				xAxis: { type: 'value', axisLabel: { color: '#8a8a8a' }, splitLine: { lineStyle: { color: '#262626' } } },
-				yAxis: { type: 'category', data: topByTracks.map((a) => a[1]).reverse(), axisLabel: { color: '#a3a3a3' } },
-				series: [{ type: 'bar', data: topByTracks.map((a) => a[3] ?? 0).reverse(), color: '#f5f5f5' }]
+				xAxis: { type: 'value', axisLabel: { color: '#8a8a8a', formatter: (value: number) => `${value} MB` }, splitLine: { lineStyle: { color: '#262626' } } },
+				yAxis: { type: 'category', data: storageArtistChartRows.map((row) => row[1] ?? 'Unknown'), axisLabel: { color: '#a3a3a3' } },
+				series: [{ type: 'bar', data: storageArtistChartRows.map((row) => Number((row[2] / 1024 ** 2).toFixed(1))), color: '#f5f5f5' }],
+				tooltip: { valueFormatter: (value: number) => `${value.toFixed(1)} MB` }
 			}}
 		/>
-		<DataTable columns={['Artist', 'Storage', 'Tracks']} rows={storageArtistTableRows} cellLinks={storageArtistTableLinks} />
+		<ExpandableTable title="Artist Storage" rows={storageArtistTableRows} />
 	</section>
 
 	<div class="toolbar"><FilterBar bind:value={filter} placeholder="Filter artists" /></div>
