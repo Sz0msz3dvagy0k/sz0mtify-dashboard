@@ -79,11 +79,18 @@
 
 	<div class="panel-list">
 		{#each detail.tracks as track, index}
-			<div class="playable-row playlist-row" class:playing-row={track[0] === playingTrackId}>
+			<div
+				class="playable-row playlist-row"
+				class:playing-row={track[0] === playingTrackId}
+				role="button"
+				tabindex="0"
+				on:click={() => play(index)}
+				on:keydown={(event) => (event.key === 'Enter' || event.key === ' ') && play(index)}
+			>
 				{#if track[0] === playingTrackId}
 					<div class="playing-indicator" aria-label="Now playing"><span></span><span></span><span></span></div>
 				{:else}
-					<button class="icon-button" aria-label={`Play ${track[1]}`} on:click={() => play(index)}>▶</button>
+					<button class="icon-button" aria-label={`Play ${track[1]}`} on:click|stopPropagation={() => play(index)}>▶</button>
 				{/if}
 				<div class="playlist-track-art">
 					<ImageWithFallback src={coverUrl(track[5] ?? playlistCoverArtId)} alt={track[1]} />

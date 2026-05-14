@@ -9,6 +9,8 @@ const ALLOWED_SETTING_KEYS: &[&str] = &[
     "subsonic_password",
     "subsonic_api_version",
     "lastfm_api_key",
+    "stream_transcode_mode",
+    "stream_transcode_quality",
 ];
 
 const REDACTED_VALUE: &str = "********";
@@ -25,7 +27,7 @@ impl SettingsService {
                 if is_secret_key(&key) {
                     (key, REDACTED_VALUE.to_string())
                 } else {
-                    (key, value)
+                    (key, normalize_setting_value(value))
                 }
             })
             .collect())
@@ -45,6 +47,14 @@ impl SettingsService {
         }
         Ok(())
     }
+
+    pub async fn get_value(
+        &self,
+        pool: &sqlx::SqlitePool,
+        key: &str,
+    ) -> anyhow::Result<Option<String>> {
+        setting_value(pool, key).await
+    }
 }
 
 fn is_allowed_setting_key(key: &str) -> bool {
@@ -57,4 +67,25 @@ fn is_secret_key(key: &str) -> bool {
         || lower.contains("token")
         || lower.contains("secret")
         || lower.contains("api_key")
+}
+
+async fn setting_value(pool: &sqlx::SqlitePool, key: &str) -> anyhow::Result<Option<String>> {
+    let value: Option<(String,)> = sqlx::query_as("SELECT value FROM settings WHERE key = ?")
+        .bind(key)
+        .fetch_optional(pool)
+        .await?;
+
+    if let Some((value,)) = value {
+        let parsed = normalize_setting_value(value);
+        let parsed = parsed.trim().to_string();
+        if !parsed.is_empty() {
+            return Ok(Some(parsed));
+        }
+    }
+
+    Ok(None)
+}
+
+fn normalize_setting_value(value: String) -> String {
+    serde_json::from_str::<String>(&value).unwrap_or(value)
 }

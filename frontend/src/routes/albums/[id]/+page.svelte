@@ -94,18 +94,18 @@
 		</div>
 	</section>
 	<div class="table-wrap">
-		<table>
+		<table class="track-table">
 			<thead>
 				<tr><th></th><th>#</th><th>Track</th><th>Disc</th></tr>
 			</thead>
 			<tbody>
 				{#each albumTracks as track, index}
-					<tr class:highlight-row={track[0] === highlightedTrackId} class:playing-row={track[0] === playingTrackId}>
+					<tr class:highlight-row={track[0] === highlightedTrackId} class:playing-row={track[0] === playingTrackId} on:click={() => play(index)}>
 						<td>
 							{#if track[0] === playingTrackId}
 								<div class="playing-indicator" aria-label="Now playing"><span></span><span></span><span></span></div>
 							{:else}
-								<button class="icon-button" aria-label={`Play ${track[1]}`} on:click={() => play(index)}>▶</button>
+								<button class="icon-button" aria-label={`Play ${track[1]}`} on:click|stopPropagation={() => play(index)}>▶</button>
 							{/if}
 						</td>
 						<td>{track[2] ?? '—'}</td>
