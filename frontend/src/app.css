@@ -433,7 +433,7 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 		width: min(300px, 84vw);
 		height: auto;
 		padding:
-			max(16px, env(safe-area-inset-top))
+			calc(max(16px, env(safe-area-inset-top)) + 8px)
 			14px
 			max(16px, env(safe-area-inset-bottom))
 			max(14px, env(safe-area-inset-left));
@@ -461,7 +461,7 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 	.main-column { grid-column: auto; }
 	.topbar {
 		padding:
-			16px
+			calc(max(16px, env(safe-area-inset-top)) + 8px)
 			max(16px, env(safe-area-inset-right))
 			16px
 			max(16px, env(safe-area-inset-left));

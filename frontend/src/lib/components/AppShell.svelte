@@ -41,6 +41,10 @@
 		{ href: '/search', label: 'Search', icon: Search },
 		{ href: '/settings', label: 'Settings', icon: Settings }
 	];
+	const mobileMenuBreakpoint = 980;
+	const edgeSwipeWidth = 28;
+	const swipeDistance = 56;
+	const swipeOffAxisLimit = 70;
 
 	let status: SyncStatus = [];
 	let playlists: PlaylistSummary[] = [];
@@ -48,6 +52,9 @@
 	let authenticated = false;
 	let accountName = '';
 	let mobileMenuOpen = false;
+	let swipeStartX = 0;
+	let swipeStartY = 0;
+	let trackedSwipe: 'open' | 'close' | null = null;
 	$: current = nav.find((item) => $page.url.pathname.startsWith(item.href)) ?? nav[0];
 	$: subtitle = status.length ? status.map((row) => `${row[1]} ${row[3]}`).join(' · ') : 'Backend status pending';
 
@@ -96,9 +103,62 @@
 	function closeMobileMenu() {
 		mobileMenuOpen = false;
 	}
+
+	function isMobileViewport() {
+		return window.innerWidth <= mobileMenuBreakpoint;
+	}
+
+	function handleTouchStart(event: TouchEvent) {
+		if (!authenticated || !isMobileViewport() || event.touches.length !== 1) return;
+
+		const touch = event.touches[0];
+		swipeStartX = touch.clientX;
+		swipeStartY = touch.clientY;
+
+		if (!mobileMenuOpen && touch.clientX <= edgeSwipeWidth) {
+			trackedSwipe = 'open';
+			return;
+		}
+
+		const drawerWidth = Math.min(300, window.innerWidth * 0.84);
+		trackedSwipe = mobileMenuOpen && touch.clientX <= drawerWidth ? 'close' : null;
+	}
+
+	function handleTouchMove(event: TouchEvent) {
+		if (!trackedSwipe || event.touches.length !== 1) return;
+
+		const touch = event.touches[0];
+		const deltaX = touch.clientX - swipeStartX;
+		const deltaY = Math.abs(touch.clientY - swipeStartY);
+
+		if (deltaY > swipeOffAxisLimit) {
+			trackedSwipe = null;
+			return;
+		}
+
+		if (trackedSwipe === 'open' && deltaX >= swipeDistance) {
+			mobileMenuOpen = true;
+			trackedSwipe = null;
+		}
+
+		if (trackedSwipe === 'close' && deltaX <= -swipeDistance) {
+			closeMobileMenu();
+			trackedSwipe = null;
+		}
+	}
+
+	function handleTouchEnd() {
+		trackedSwipe = null;
+	}
 </script>
 
-<svelte:window on:keydown={(event) => event.key === 'Escape' && closeMobileMenu()} />
+<svelte:window
+	on:keydown={(event) => event.key === 'Escape' && closeMobileMenu()}
+	on:touchstart={handleTouchStart}
+	on:touchmove={handleTouchMove}
+	on:touchend={handleTouchEnd}
+	on:touchcancel={handleTouchEnd}
+/>
 
 <svelte:head>
 	<title>{authenticated ? `${current.label} · Archive` : 'Sign in · Archive'}</title>
