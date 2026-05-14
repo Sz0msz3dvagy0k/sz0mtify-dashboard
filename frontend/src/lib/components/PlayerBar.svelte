@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import { onMount } from 'svelte';
 	import {
 		ChevronsLeft,
@@ -11,6 +12,7 @@
 	} from 'lucide-svelte';
 	import { api } from '$lib/api';
 	import ImageWithFallback from './ImageWithFallback.svelte';
+	import { loadCachedImage } from '$lib/imageCache';
 	import { formatDuration } from '$lib/format';
 	import {
 		playIndex,
@@ -34,6 +36,7 @@
 	let playerTouchStartY = 0;
 	let playerTouchStartX = 0;
 	let suppressNextPlayerClick = false;
+	let mediaSessionTrackId: number | null = null;
 	let streamRequestId = 0;
 	$: currentTrack = $player.queue[$player.currentIndex] ?? null;
 	$: progress = $player.duration > 0 ? ($player.currentTime / $player.duration) * 100 : 0;
@@ -55,6 +58,14 @@
 		audio.pause();
 	}
 
+	$: if (currentTrack && currentTrack.id !== mediaSessionTrackId) {
+		mediaSessionTrackId = currentTrack.id;
+		void updateMediaSessionMetadata(currentTrack);
+	}
+
+	$: updateMediaSessionPlaybackState();
+	$: updateMediaSessionPositionState();
+
 	function seek(event: Event) {
 		const value = Number((event.target as HTMLInputElement).value);
 		if (!audio || !$player.duration) return;
@@ -65,6 +76,84 @@
 		if (event.code !== 'Space' || event.repeat || !currentTrack || isEditingTarget(event.target)) return;
 		event.preventDefault();
 		togglePlay();
+	}
+
+	async function updateMediaSessionMetadata(track: NonNullable<typeof currentTrack>) {
+		if (!browser || !('mediaSession' in navigator) || !('MediaMetadata' in window)) return;
+
+		const artwork = await mediaSessionArtwork(track);
+		if (currentTrack?.id !== track.id) return;
+
+		navigator.mediaSession.metadata = new MediaMetadata({
+			title: track.title,
+			artist: track.artist,
+			album: track.album,
+			artwork
+		});
+	}
+
+	async function mediaSessionArtwork(track: NonNullable<typeof currentTrack>): Promise<MediaImage[]> {
+		const imageUrl = queueTrackImage(track);
+		if (!imageUrl) return [];
+
+		try {
+			const src = await loadCachedImage(imageUrl);
+			return [
+				{ src, sizes: '96x96', type: 'image/png' },
+				{ src, sizes: '256x256', type: 'image/png' },
+				{ src, sizes: '512x512', type: 'image/png' }
+			];
+		} catch (error) {
+			console.warn('Unable to load lock-screen artwork', error);
+			return [];
+		}
+	}
+
+	function updateMediaSessionPlaybackState() {
+		if (!browser || !('mediaSession' in navigator)) return;
+		navigator.mediaSession.playbackState = currentTrack
+			? $player.isPlaying
+				? 'playing'
+				: 'paused'
+			: 'none';
+	}
+
+	function updateMediaSessionPositionState() {
+		if (!browser || !('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return;
+		const duration = $player.duration || currentTrack?.duration || 0;
+		if (!currentTrack || !Number.isFinite(duration) || duration <= 0) return;
+
+		try {
+			navigator.mediaSession.setPositionState({
+				duration,
+				playbackRate: audio?.playbackRate || 1,
+				position: Math.min($player.currentTime, duration)
+			});
+		} catch {
+			// Some WebKit builds reject position state until duration is fully known.
+		}
+	}
+
+	function registerMediaSessionHandlers() {
+		if (!browser || !('mediaSession' in navigator)) return;
+		const handlers: Partial<Record<MediaSessionAction, MediaSessionActionHandler>> = {
+			play: () => setPlaying(true),
+			pause: () => setPlaying(false),
+			previoustrack: playPrevious,
+			nexttrack: playNext,
+			seekto: (details) => {
+				if (!audio || typeof details.seekTime !== 'number') return;
+				audio.currentTime = details.seekTime;
+			}
+		};
+
+		for (const [action, handler] of Object.entries(handlers) as [MediaSessionAction, MediaSessionActionHandler][]) {
+			try {
+				navigator.mediaSession.setActionHandler(action, handler);
+			} catch {
+				// Ignore actions unsupported by the current browser/runtime.
+			}
+		}
 	}
 
 	function isEditingTarget(target: EventTarget | null) {
@@ -210,6 +299,7 @@
 
 	onMount(() => {
 		if (audio) audio.volume = $player.volume;
+		registerMediaSessionHandlers();
 	});
 </script>
 
