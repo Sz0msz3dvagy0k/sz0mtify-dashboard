@@ -610,6 +610,7 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 	gap: 10px;
 	align-items: center;
 }
+.desktop-player-control { display: none; }
 .player-track { min-width: 0; }
 .player-track strong, .player-track span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .player-track span { color: #8a8a8a; font-size: 13px; margin-top: 4px; }
@@ -692,6 +693,40 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 	border: 1px solid #262626;
 	border-radius: 6px;
 	background: #181818;
+}
+
+@media (min-width: 981px) {
+	.player-compact {
+		grid-template-columns: 48px minmax(120px, 1fr) minmax(120px, .9fr) 38px 38px 38px minmax(96px, 140px) 38px;
+	}
+	.desktop-player-control {
+		display: inline-grid;
+	}
+	.player-compact-progress {
+		grid-template-columns: 38px minmax(96px, 1fr) 38px;
+	}
+	.player-compact-volume {
+		grid-template-columns: 18px minmax(78px, 1fr);
+	}
+	.player-bar.expanded.queue-open {
+		grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+		align-content: stretch;
+		align-items: stretch;
+	}
+	.player-bar.expanded.queue-open .player-swipe-viewport {
+		grid-column: 1;
+		align-self: center;
+	}
+	.player-bar.expanded.queue-open .queue-panel {
+		position: relative;
+		right: auto;
+		bottom: auto;
+		z-index: 1;
+		grid-column: 2;
+		align-self: stretch;
+		width: 100%;
+		max-height: none;
+	}
 }
 
 @media (max-width: 980px) {
@@ -850,6 +885,14 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 	.player-bar.expanded .player-center { margin-top: auto; padding-top: 56px; padding-bottom: 8px; }
 	.player-actions { justify-content: space-between; }
 	.settings-panel { grid-template-columns: 1fr; align-items: stretch; }
+}
+
+@media (max-width: 980px) and (pointer: fine) {
+	.desktop-search {
+		display: grid;
+		flex: 0 1 min(420px, 42vw);
+	}
+	.mobile-search-button { display: none; }
 }
 
 @media (max-width: 560px) {

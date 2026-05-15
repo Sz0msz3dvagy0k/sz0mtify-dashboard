@@ -503,6 +503,7 @@
 		class="player-bar"
 		class:expanded={visualExpanded}
 		class:dragging={playerPointerId !== null && playerDragMode !== null}
+		class:queue-open={$player.queueOpen}
 		style={playerDragStyle}
 		on:click={toggleExpanded}
 		on:keydown={(event) => (event.key === 'Enter' || event.key === ' ') && toggleExpanded(event)}
@@ -576,22 +577,37 @@
 				</div>
 			</div>
 		{:else}
-			<div class="player-compact">
-				<div class="player-art">
-					<ImageWithFallback src={queueTrackImage(currentTrack)} alt={currentTrack.title} />
+				<div class="player-compact">
+					<div class="player-art">
+						<ImageWithFallback src={queueTrackImage(currentTrack)} alt={currentTrack.title} />
+					</div>
+					<div class="player-track">
+						<strong>{currentTrack.title}</strong>
+						<span>{currentTrack.artist}</span>
+					</div>
+					<div class="player-progress player-compact-progress desktop-player-control">
+						<span>{formatDuration(Math.floor($player.currentTime))}</span>
+						<input type="range" min="0" max="100" value={progress} on:click|stopPropagation on:input={seek} aria-label="Track progress" />
+						<span>{formatDuration(Math.floor($player.duration || currentTrack.duration || 0))}</span>
+					</div>
+					<button class="icon-button desktop-player-control" aria-label="Previous track" on:click|stopPropagation={playPrevious} disabled={$player.currentIndex <= 0}>
+						<ChevronsLeft size={18} />
+					</button>
+					<button class="icon-button primary" aria-label={$player.isPlaying ? 'Pause' : 'Play'} on:click|stopPropagation={togglePlay}>
+						{#if $player.isPlaying}<Pause size={18} />{:else}<Play size={18} />{/if}
+					</button>
+					<button class="icon-button" aria-label="Next track" on:click|stopPropagation={playNext} disabled={$player.currentIndex >= $player.queue.length - 1}>
+						<ChevronsRight size={18} />
+					</button>
+					<div class="volume-control player-compact-volume desktop-player-control">
+						<Volume2 size={16} />
+						<input type="range" min="0" max="1" step="0.01" value={$player.volume} on:click|stopPropagation on:input={(event) => setVolume(Number((event.target as HTMLInputElement).value))} aria-label="Volume" />
+					</div>
+					<button class="icon-button desktop-player-control" aria-label="Queue" on:click|stopPropagation={toggleQueue}>
+						<ListMusic size={18} />
+					</button>
 				</div>
-				<div class="player-track">
-					<strong>{currentTrack.title}</strong>
-					<span>{currentTrack.artist}</span>
-				</div>
-				<button class="icon-button primary" aria-label={$player.isPlaying ? 'Pause' : 'Play'} on:click|stopPropagation={togglePlay}>
-					{#if $player.isPlaying}<Pause size={18} />{:else}<Play size={18} />{/if}
-				</button>
-				<button class="icon-button" aria-label="Next track" on:click|stopPropagation={playNext} disabled={$player.currentIndex >= $player.queue.length - 1}>
-					<ChevronsRight size={18} />
-				</button>
-			</div>
-		{/if}
+			{/if}
 				</div>
 				<div class="player-swipe-panel">
 					{#if nextTrack}
