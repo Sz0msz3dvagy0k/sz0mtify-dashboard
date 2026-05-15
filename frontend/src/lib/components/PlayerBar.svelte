@@ -34,6 +34,7 @@
 
 	let playerElement: HTMLDivElement;
 	let audio: HTMLAudioElement;
+	let progressInput: HTMLInputElement;
 	let lastTrackId: number | null = null;
 	let registeredTrackId: number | null = null;
 	let pendingAutoplayTrackId: number | null = null;
@@ -111,6 +112,7 @@
 		audio.currentTime = nextTime;
 		displayedCurrentTime = nextTime;
 		setTime(nextTime, duration);
+		updateProgressControl();
 	}
 
 	function syncDisplayedTime() {
@@ -118,6 +120,15 @@
 		const audioDuration = audio && Number.isFinite(audio.duration) ? audio.duration : null;
 		displayedCurrentTime = audioTime ?? $player.currentTime;
 		displayedDuration = audioDuration ?? ($player.duration || currentTrack?.duration || 0);
+		updateProgressControl();
+	}
+
+	function updateProgressControl() {
+		if (!progressInput) return;
+		const duration = displayedDuration || $player.duration || currentTrack?.duration || 0;
+		const percent = duration > 0 ? (Math.min(displayedCurrentTime, duration) / duration) * 100 : 0;
+		progressInput.value = String(percent);
+		progressInput.style.setProperty('--progress', `${percent}%`);
 	}
 
 	function startProgressAnimation() {
@@ -667,7 +678,7 @@
 
 		<div class="player-progress">
 			<span>{formatDuration(Math.floor($player.currentTime))}</span>
-			<input type="range" min="0" max="100" value={progress} style={`--progress: ${progress}%;`} on:click|stopPropagation on:input={seek} aria-label="Track progress" />
+			<input bind:this={progressInput} type="range" min="0" max="100" step="any" value={progress} style={`--progress: ${progress}%;`} on:click|stopPropagation on:input={seek} aria-label="Track progress" />
 			<span>{formatDuration(Math.floor($player.duration || currentTrack.duration || 0))}</span>
 		</div>
 

@@ -227,6 +227,18 @@ tr:hover td { background: #141414; }
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
+.playlist-track-table th:nth-child(2), .playlist-track-table td:nth-child(2) { width: 62px; }
+.playlist-track-table th:nth-child(4), .playlist-track-table td:nth-child(4) { width: 22%; }
+.playlist-track-table th:nth-child(5), .playlist-track-table td:nth-child(5) { width: 24%; }
+.playlist-track-table th:nth-child(6), .playlist-track-table td:nth-child(6) { width: 92px; }
+.playlist-track-table td:nth-child(3),
+.playlist-track-table td:nth-child(4),
+.playlist-track-table td:nth-child(5) {
+	max-width: 1px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
 tr.highlight-row td { background: rgba(255,255,255,.16); transition: background .25s ease; }
 tr.playing-row td { background: rgba(245,245,245,.11); transition: background .25s ease; }
 .table-link { display: inline-flex; align-items: center; min-height: 24px; border-bottom: 1px solid #525252; }
@@ -505,12 +517,6 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 .compact { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .bio { max-width: 820px; color: #d4d4d4; line-height: 1.65; }
 .badge-cloud { display: flex; flex-wrap: wrap; gap: 8px; }
-.playable-row { display: grid; grid-template-columns: 42px minmax(0, 1fr); align-items: center; gap: 10px; border-bottom: 1px solid #262626; }
-.playable-row { cursor: pointer; }
-.playable-row.playlist-row { grid-template-columns: 42px 44px minmax(0, 1fr); }
-.playable-row.playing-row { background: rgba(245,245,245,.11); transition: background .25s ease; }
-.playable-row .track-row { border-bottom: 0; }
-.playable-row .track-row, .track-row > div { min-width: 0; }
 .playlist-track-art { width: 44px; height: 44px; overflow: hidden; border: 1px solid #262626; border-radius: 6px; background: #181818; }
 .playing-indicator { width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; gap: 3px; border: 1px solid #525252; border-radius: 999px; color: #f5f5f5; }
 .playing-indicator span { width: 3px; height: 12px; border-radius: 999px; background: currentColor; animation: playing-bars .78s ease-in-out infinite; opacity: .88; }

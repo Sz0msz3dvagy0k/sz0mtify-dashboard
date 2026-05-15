@@ -7,7 +7,6 @@
 	import ErrorState from '$lib/components/ErrorState.svelte';
 	import ImageWithFallback from '$lib/components/ImageWithFallback.svelte';
 	import StatCard from '$lib/components/StatCard.svelte';
-	import TrackRow from '$lib/components/TrackRow.svelte';
 	import { coverUrl, formatDuration, formatNumber } from '$lib/format';
 	import { player, playQueue, type QueueTrack } from '$lib/player';
 
@@ -77,26 +76,33 @@
 		</div>
 	</section>
 
-	<div class="panel-list">
-		{#each detail.tracks as track, index}
-			<div
-				class="playable-row playlist-row"
-				class:playing-row={track[0] === playingTrackId}
-				role="button"
-				tabindex="0"
-				on:click={() => play(index)}
-				on:keydown={(event) => (event.key === 'Enter' || event.key === ' ') && play(index)}
-			>
-				{#if track[0] === playingTrackId}
-					<div class="playing-indicator" aria-label="Now playing"><span></span><span></span><span></span></div>
-				{:else}
-					<button class="icon-button" aria-label={`Play ${track[1]}`} on:click|stopPropagation={() => play(index)}>▶</button>
-				{/if}
-				<div class="playlist-track-art">
-					<ImageWithFallback src={coverUrl(track[5] ?? playlistCoverArtId)} alt={track[1]} />
-				</div>
-				<TrackRow title={track[1]} detail={track[2] ?? track[7] ?? ''} duration={track[6]} />
-			</div>
-		{/each}
+	<div class="table-wrap">
+		<table class="track-table playlist-track-table">
+			<thead>
+				<tr><th></th><th></th><th>Track</th><th>Artist</th><th>Album</th><th>Duration</th></tr>
+			</thead>
+			<tbody>
+				{#each detail.tracks as track, index}
+					<tr class:playing-row={track[0] === playingTrackId} on:click={() => play(index)}>
+						<td>
+							{#if track[0] === playingTrackId}
+								<div class="playing-indicator" aria-label="Now playing"><span></span><span></span><span></span></div>
+							{:else}
+								<button class="icon-button" aria-label={`Play ${track[1]}`} on:click|stopPropagation={() => play(index)}>▶</button>
+							{/if}
+						</td>
+						<td>
+							<div class="playlist-track-art">
+								<ImageWithFallback src={coverUrl(track[5] ?? playlistCoverArtId)} alt={track[1]} />
+							</div>
+						</td>
+						<td>{track[1]}</td>
+						<td>{track[2] ?? 'Unknown artist'}</td>
+						<td>{track[4] ?? track[7] ?? '—'}</td>
+						<td>{formatDuration(track[6])}</td>
+					</tr>
+				{/each}
+			</tbody>
+		</table>
 	</div>
 {/if}
