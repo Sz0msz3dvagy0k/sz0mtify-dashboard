@@ -656,8 +656,13 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 	line-height: 1;
 }
 .player-center { display: grid; gap: 8px; }
-.player-bar.expanded .player-center { margin-top: auto; padding-top: 48px; }
+.player-bar.expanded .player-center { margin-top: 0; padding-top: 0; }
 .player-buttons { display: flex; justify-content: center; gap: 8px; }
+.player-expanded-controls {
+	margin-top: auto;
+	display: grid;
+	gap: 18px;
+}
 .player-compact-buttons {
 	display: flex;
 	justify-content: flex-end;
@@ -813,6 +818,11 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 	.player-compact-volume {
 		grid-template-columns: 18px minmax(78px, 1fr);
 	}
+	.player-bar.expanded {
+		grid-template-rows: minmax(0, 1fr);
+		align-content: stretch;
+		align-items: stretch;
+	}
 	.player-bar.expanded .player-swipe-viewport {
 		height: 100%;
 		align-self: stretch;
@@ -829,9 +839,8 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 		min-height: 0;
 		justify-content: flex-start;
 	}
-	.player-bar.expanded .player-center {
+	.player-bar.expanded .player-expanded-controls {
 		margin-top: auto;
-		padding-top: 0;
 	}
 	.player-bar.expanded.queue-open {
 		grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
@@ -840,7 +849,7 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 	}
 	.player-bar.expanded.queue-open .player-swipe-viewport {
 		grid-column: 1;
-		align-self: center;
+		align-self: stretch;
 	}
 	.player-bar.expanded.queue-open .queue-panel {
 		position: relative;
@@ -1008,6 +1017,7 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 	.player-expanded-title { text-align: center; }
 	.player-expanded-title strong { white-space: normal; font-size: clamp(30px, 9vw, 46px); }
 	.player-bar.expanded .player-center { margin-top: auto; padding-top: 56px; padding-bottom: 8px; }
+	.player-bar.expanded .player-expanded-controls { margin-top: auto; }
 	.player-actions { justify-content: space-between; }
 	.settings-panel { grid-template-columns: 1fr; align-items: stretch; }
 }

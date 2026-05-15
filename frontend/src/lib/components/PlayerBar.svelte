@@ -605,31 +605,33 @@
 					<span>{currentTrack.artist} · {currentTrack.album}</span>
 				</div>
 
-				<div class="player-center">
-					<div class="player-buttons">
-						<button class="icon-button" aria-label="Previous track" on:click|stopPropagation={playPrevious} disabled={$player.currentIndex <= 0}>
-							<ChevronsLeft size={18} />
-						</button>
-						<button class="icon-button primary" aria-label={$player.isPlaying ? 'Pause' : 'Play'} on:click|stopPropagation={togglePlay}>
-							{#if $player.isPlaying}<Pause size={18} />{:else}<Play size={18} />{/if}
-						</button>
-						<button class="icon-button" aria-label="Next track" on:click|stopPropagation={playNext} disabled={$player.currentIndex >= $player.queue.length - 1}>
-							<ChevronsRight size={18} />
-						</button>
+				<div class="player-expanded-controls">
+					<div class="player-center">
+						<div class="player-buttons">
+							<button class="icon-button" aria-label="Previous track" on:click|stopPropagation={playPrevious} disabled={$player.currentIndex <= 0}>
+								<ChevronsLeft size={18} />
+							</button>
+							<button class="icon-button primary" aria-label={$player.isPlaying ? 'Pause' : 'Play'} on:click|stopPropagation={togglePlay}>
+								{#if $player.isPlaying}<Pause size={18} />{:else}<Play size={18} />{/if}
+							</button>
+							<button class="icon-button" aria-label="Next track" on:click|stopPropagation={playNext} disabled={$player.currentIndex >= $player.queue.length - 1}>
+								<ChevronsRight size={18} />
+							</button>
+						</div>
 					</div>
-				</div>
 
-				<div class="player-actions">
-					<div class="volume-control">
-						<Volume2 size={16} />
-						<input type="range" min="0" max="1" step="0.01" value={$player.volume} on:click|stopPropagation on:input={(event) => setVolume(Number((event.target as HTMLInputElement).value))} aria-label="Volume" />
+					<div class="player-actions">
+						<div class="volume-control">
+							<Volume2 size={16} />
+							<input type="range" min="0" max="1" step="0.01" value={$player.volume} on:click|stopPropagation on:input={(event) => setVolume(Number((event.target as HTMLInputElement).value))} aria-label="Volume" />
+						</div>
+						<button class="icon-button" aria-label="Lyrics" title="Lyrics coming later" disabled on:click|stopPropagation>
+							<MessageSquareText size={18} />
+						</button>
+						<button class="icon-button" aria-label="Queue" on:click|stopPropagation={toggleQueue}>
+							<ListMusic size={18} />
+						</button>
 					</div>
-					<button class="icon-button" aria-label="Lyrics" title="Lyrics coming later" disabled on:click|stopPropagation>
-						<MessageSquareText size={18} />
-					</button>
-					<button class="icon-button" aria-label="Queue" on:click|stopPropagation={toggleQueue}>
-						<ListMusic size={18} />
-					</button>
 				</div>
 			</div>
 		{:else}
