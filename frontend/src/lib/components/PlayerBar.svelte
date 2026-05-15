@@ -246,6 +246,7 @@
 	function isEditingTarget(target: EventTarget | null) {
 		if (!(target instanceof HTMLElement)) return false;
 		if (target.isContentEditable) return true;
+		if (target === playerElement) return false;
 		return Boolean(target.closest('input, textarea, select, button, a, [role="button"], [role="slider"]'));
 	}
 

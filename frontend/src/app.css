@@ -804,7 +804,8 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 
 @media (min-width: 981px) {
 	.player-compact {
-		grid-template-columns: 48px minmax(120px, 1fr) minmax(132px, .8fr) minmax(96px, 140px) 38px;
+		position: relative;
+		grid-template-columns: 48px minmax(120px, calc(50% - 172px)) minmax(0, 1fr) minmax(96px, 140px) 38px;
 	}
 	.desktop-player-control {
 		display: inline-grid;
@@ -813,10 +814,17 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 		display: grid;
 	}
 	.player-compact-buttons {
+		position: absolute;
+		left: 50%;
 		justify-content: center;
+		transform: translateX(-50%);
 	}
 	.player-compact-volume {
+		grid-column: 4;
 		grid-template-columns: 18px minmax(78px, 1fr);
+	}
+	.player-compact > .icon-button.desktop-player-control {
+		grid-column: 5;
 	}
 	.player-bar.expanded {
 		align-content: stretch;
@@ -852,11 +860,16 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 		align-self: center;
 	}
 	.player-bar.expanded .player-expanded-controls {
-		margin-top: auto;
+		position: absolute;
+		left: 0;
+		right: 0;
+		bottom: 28px;
+		margin-top: 0;
 		display: grid;
 		grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
 		align-items: center;
 		gap: 18px;
+		padding: 0 28px;
 	}
 	.player-bar.expanded .player-center {
 		grid-column: 2;
