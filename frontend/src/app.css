@@ -819,37 +819,56 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 		grid-template-columns: 18px minmax(78px, 1fr);
 	}
 	.player-bar.expanded {
-		grid-template-rows: minmax(0, 1fr);
-		align-content: stretch;
-		align-items: stretch;
+		align-content: center;
+		align-items: center;
 	}
 	.player-bar.expanded .player-swipe-viewport {
-		height: 100%;
-		align-self: stretch;
+		height: auto;
+		align-self: center;
 	}
 	.player-bar.expanded .player-swipe-track {
-		height: 100%;
+		height: auto;
 	}
 	.player-bar.expanded .player-swipe-panel {
-		align-content: stretch;
+		min-height: 0;
+		grid-template-columns: minmax(260px, min(34vw, 420px)) minmax(0, 1fr);
+		align-content: center;
 		align-items: stretch;
 	}
+	.player-bar.expanded .player-expanded-art {
+		width: min(420px, 100%, calc(100vh - 120px));
+		align-self: center;
+		justify-self: center;
+	}
 	.player-bar.expanded .player-expanded-main {
-		height: 100%;
-		min-height: 0;
-		justify-content: flex-start;
+		height: auto;
+		min-height: min(420px, calc(100vh - 120px));
+		display: grid;
+		grid-template-rows: auto 1fr;
+		align-self: center;
 	}
 	.player-bar.expanded .player-expanded-controls {
 		margin-top: auto;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+		align-items: center;
+		gap: 18px;
+	}
+	.player-bar.expanded .player-center {
+		grid-column: 2;
+	}
+	.player-bar.expanded .player-actions {
+		grid-column: 3;
+		justify-self: end;
 	}
 	.player-bar.expanded.queue-open {
 		grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
-		align-content: stretch;
+		align-content: center;
 		align-items: stretch;
 	}
 	.player-bar.expanded.queue-open .player-swipe-viewport {
 		grid-column: 1;
-		align-self: stretch;
+		align-self: center;
 	}
 	.player-bar.expanded.queue-open .queue-panel {
 		position: relative;
