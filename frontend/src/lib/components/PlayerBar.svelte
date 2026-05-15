@@ -556,11 +556,6 @@
 							<ChevronsRight size={18} />
 						</button>
 					</div>
-					<div class="player-progress">
-						<span>{formatDuration(Math.floor($player.currentTime))}</span>
-						<input type="range" min="0" max="100" value={progress} on:click|stopPropagation on:input={seek} aria-label="Track progress" />
-						<span>{formatDuration(Math.floor($player.duration || currentTrack.duration || 0))}</span>
-					</div>
 				</div>
 
 				<div class="player-actions">
@@ -584,11 +579,6 @@
 					<div class="player-track">
 						<strong>{currentTrack.title}</strong>
 						<span>{currentTrack.artist}</span>
-					</div>
-					<div class="player-progress player-compact-progress desktop-player-control">
-						<span>{formatDuration(Math.floor($player.currentTime))}</span>
-						<input type="range" min="0" max="100" value={progress} on:click|stopPropagation on:input={seek} aria-label="Track progress" />
-						<span>{formatDuration(Math.floor($player.duration || currentTrack.duration || 0))}</span>
 					</div>
 					<button class="icon-button desktop-player-control" aria-label="Previous track" on:click|stopPropagation={playPrevious} disabled={$player.currentIndex <= 0}>
 						<ChevronsLeft size={18} />
@@ -623,6 +613,12 @@
 					{/if}
 				</div>
 			</div>
+		</div>
+
+		<div class="player-progress">
+			<span>{formatDuration(Math.floor($player.currentTime))}</span>
+			<input type="range" min="0" max="100" value={progress} style={`--progress: ${progress}%;`} on:click|stopPropagation on:input={seek} aria-label="Track progress" />
+			<span>{formatDuration(Math.floor($player.duration || currentTrack.duration || 0))}</span>
 		</div>
 
 		{#if $player.queueOpen}
