@@ -130,7 +130,7 @@ button { cursor: pointer; }
 	text-overflow: ellipsis;
 }
 .topbar-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; min-width: 0; }
-.mobile-search-button { display: none; }
+.icon-button.mobile-search-button { display: none; }
 .search-overlay { display: none; }
 .page-surface { padding: 28px 32px 136px; animation: page-in .32s ease both; }
 @keyframes page-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
@@ -870,7 +870,7 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 	.topbar-heading { flex: 1 1 auto; min-width: 0; }
 	.menu-button { display: inline-grid; }
 	.desktop-search { display: none; }
-	.mobile-search-button { display: inline-grid; }
+	.icon-button.mobile-search-button { display: inline-grid; }
 	.search-overlay {
 		position: fixed;
 		inset: 0;

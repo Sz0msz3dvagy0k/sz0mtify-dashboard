@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import {
 		ChevronsLeft,
 		ChevronsRight,
@@ -49,10 +49,15 @@
 	let mediaSessionTrackId: number | null = null;
 	let playRequestTrackId: number | null = null;
 	let streamRequestId = 0;
+	let progressAnimationFrame: number | null = null;
+	let displayedTrackId: number | null = null;
+	let displayedCurrentTime = 0;
+	let displayedDuration = 0;
 	$: currentTrack = $player.queue[$player.currentIndex] ?? null;
 	$: previousTrack = $player.currentIndex > 0 ? $player.queue[$player.currentIndex - 1] : null;
 	$: nextTrack = $player.currentIndex < $player.queue.length - 1 ? $player.queue[$player.currentIndex + 1] : null;
-	$: progress = $player.duration > 0 ? ($player.currentTime / $player.duration) * 100 : 0;
+	$: progressDuration = displayedDuration || $player.duration || currentTrack?.duration || 0;
+	$: progress = progressDuration > 0 ? (Math.min(displayedCurrentTime, progressDuration) / progressDuration) * 100 : 0;
 	$: verticalDragActive = playerDragMode === 'opening' || playerDragMode === 'closing';
 	$: horizontalDragActive = playerDragMode === 'next' || playerDragMode === 'previous';
 	$: visualExpanded = expanded || verticalDragActive;
@@ -68,6 +73,18 @@
 
 	$: if (audio && Math.abs(audio.volume - $player.volume) > 0.01) {
 		audio.volume = $player.volume;
+	}
+
+	$: if (currentTrack?.id !== displayedTrackId) {
+		displayedTrackId = currentTrack?.id ?? null;
+		syncDisplayedTime();
+	}
+
+	$: if ($player.isPlaying) {
+		startProgressAnimation();
+	} else {
+		stopProgressAnimation();
+		syncDisplayedTime();
 	}
 
 	$: if (audio && currentTrack && $player.isPlaying && audio.paused && audio.readyState >= HTMLMediaElement.HAVE_METADATA) {
@@ -88,8 +105,34 @@
 
 	function seek(event: Event) {
 		const value = Number((event.target as HTMLInputElement).value);
-		if (!audio || !$player.duration) return;
-		audio.currentTime = (value / 100) * $player.duration;
+		const duration = displayedDuration || $player.duration || currentTrack?.duration || 0;
+		if (!audio || !duration) return;
+		const nextTime = (value / 100) * duration;
+		audio.currentTime = nextTime;
+		displayedCurrentTime = nextTime;
+		setTime(nextTime, duration);
+	}
+
+	function syncDisplayedTime() {
+		const audioTime = audio && Number.isFinite(audio.currentTime) ? audio.currentTime : null;
+		const audioDuration = audio && Number.isFinite(audio.duration) ? audio.duration : null;
+		displayedCurrentTime = audioTime ?? $player.currentTime;
+		displayedDuration = audioDuration ?? ($player.duration || currentTrack?.duration || 0);
+	}
+
+	function startProgressAnimation() {
+		if (!browser || progressAnimationFrame !== null) return;
+		const tick = () => {
+			syncDisplayedTime();
+			progressAnimationFrame = requestAnimationFrame(tick);
+		};
+		progressAnimationFrame = requestAnimationFrame(tick);
+	}
+
+	function stopProgressAnimation() {
+		if (!browser || progressAnimationFrame === null) return;
+		cancelAnimationFrame(progressAnimationFrame);
+		progressAnimationFrame = null;
 	}
 
 	function handleGlobalKeydown(event: KeyboardEvent) {
@@ -257,6 +300,7 @@
 
 	function handleMediaReady(eventName: string) {
 		setTime(audio.currentTime, audio.duration);
+		syncDisplayedTime();
 		logAudioEvent(eventName);
 		if (pendingAutoplayTrackId && currentTrack?.id === pendingAutoplayTrackId && $player.isPlaying) {
 			void playAudio(pendingAutoplayTrackId);
@@ -480,8 +524,11 @@
 
 	onMount(() => {
 		if (audio) audio.volume = $player.volume;
+		syncDisplayedTime();
 		registerMediaSessionHandlers();
 	});
+
+	onDestroy(stopProgressAnimation);
 </script>
 
 <svelte:window on:keydown={handleGlobalKeydown} on:pointerdown|capture={handleGlobalPointerDown} />
@@ -489,7 +536,10 @@
 <audio
 	bind:this={audio}
 	crossorigin="use-credentials"
-	on:timeupdate={() => setTime(audio.currentTime, audio.duration)}
+	on:timeupdate={() => {
+		setTime(audio.currentTime, audio.duration);
+		syncDisplayedTime();
+	}}
 	on:loadedmetadata={() => handleMediaReady('loadedmetadata')}
 	on:canplay={() => handleMediaReady('canplay')}
 	on:stalled={() => logAudioEvent('stalled')}
