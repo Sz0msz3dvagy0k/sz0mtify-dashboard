@@ -641,15 +641,17 @@
 						<strong>{currentTrack.title}</strong>
 						<span>{currentTrack.artist}</span>
 					</div>
-					<button class="icon-button desktop-player-control" aria-label="Previous track" on:click|stopPropagation={playPrevious} disabled={$player.currentIndex <= 0}>
-						<ChevronsLeft size={18} />
-					</button>
-					<button class="icon-button primary" aria-label={$player.isPlaying ? 'Pause' : 'Play'} on:click|stopPropagation={togglePlay}>
-						{#if $player.isPlaying}<Pause size={18} />{:else}<Play size={18} />{/if}
-					</button>
-					<button class="icon-button" aria-label="Next track" on:click|stopPropagation={playNext} disabled={$player.currentIndex >= $player.queue.length - 1}>
-						<ChevronsRight size={18} />
-					</button>
+					<div class="player-compact-buttons">
+						<button class="icon-button desktop-player-control" aria-label="Previous track" on:click|stopPropagation={playPrevious} disabled={$player.currentIndex <= 0}>
+							<ChevronsLeft size={18} />
+						</button>
+						<button class="icon-button primary" aria-label={$player.isPlaying ? 'Pause' : 'Play'} on:click|stopPropagation={togglePlay}>
+							{#if $player.isPlaying}<Pause size={18} />{:else}<Play size={18} />{/if}
+						</button>
+						<button class="icon-button" aria-label="Next track" on:click|stopPropagation={playNext} disabled={$player.currentIndex >= $player.queue.length - 1}>
+							<ChevronsRight size={18} />
+						</button>
+					</div>
 					<div class="volume-control player-compact-volume desktop-player-control">
 						<Volume2 size={16} />
 						<input type="range" min="0" max="1" step="0.01" value={$player.volume} on:click|stopPropagation on:input={(event) => setVolume(Number((event.target as HTMLInputElement).value))} aria-label="Volume" />

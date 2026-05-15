@@ -228,6 +228,7 @@ tr:hover td { background: #141414; }
 	white-space: nowrap;
 }
 .playlist-track-table th:nth-child(2), .playlist-track-table td:nth-child(2) { width: 62px; }
+.playlist-track-table { min-width: 720px; }
 .playlist-track-table th:nth-child(4), .playlist-track-table td:nth-child(4) { width: 22%; }
 .playlist-track-table th:nth-child(5), .playlist-track-table td:nth-child(5) { width: 24%; }
 .playlist-track-table th:nth-child(6), .playlist-track-table td:nth-child(6) { width: 92px; }
@@ -612,11 +613,12 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 }
 .player-compact {
 	display: grid;
-	grid-template-columns: 48px minmax(0, 1fr) 38px 38px;
+	grid-template-columns: 48px minmax(0, 1fr) auto;
 	gap: 10px;
 	align-items: center;
 }
 .desktop-player-control { display: none; }
+.volume-control.desktop-player-control { display: none; }
 .player-track { min-width: 0; }
 .player-track strong, .player-track span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .player-track span { color: #8a8a8a; font-size: 13px; margin-top: 4px; }
@@ -656,6 +658,11 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 .player-center { display: grid; gap: 8px; }
 .player-bar.expanded .player-center { margin-top: auto; padding-top: 48px; }
 .player-buttons { display: flex; justify-content: center; gap: 8px; }
+.player-compact-buttons {
+	display: flex;
+	justify-content: flex-end;
+	gap: 10px;
+}
 .player-progress {
 	position: absolute;
 	left: 0;
@@ -792,13 +799,39 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 
 @media (min-width: 981px) {
 	.player-compact {
-		grid-template-columns: 48px minmax(120px, 1fr) 38px 38px 38px minmax(96px, 140px) 38px;
+		grid-template-columns: 48px minmax(120px, 1fr) minmax(132px, .8fr) minmax(96px, 140px) 38px;
 	}
 	.desktop-player-control {
 		display: inline-grid;
 	}
+	.volume-control.desktop-player-control {
+		display: grid;
+	}
+	.player-compact-buttons {
+		justify-content: center;
+	}
 	.player-compact-volume {
 		grid-template-columns: 18px minmax(78px, 1fr);
+	}
+	.player-bar.expanded .player-swipe-viewport {
+		height: 100%;
+		align-self: stretch;
+	}
+	.player-bar.expanded .player-swipe-track {
+		height: 100%;
+	}
+	.player-bar.expanded .player-swipe-panel {
+		align-content: stretch;
+		align-items: stretch;
+	}
+	.player-bar.expanded .player-expanded-main {
+		height: 100%;
+		min-height: 0;
+		justify-content: flex-start;
+	}
+	.player-bar.expanded .player-center {
+		margin-top: auto;
+		padding-top: 0;
 	}
 	.player-bar.expanded.queue-open {
 		grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
