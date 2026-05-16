@@ -118,8 +118,8 @@ impl AnalyticsService {
         .await?
         .and_then(|row| row.0);
 
-        let tracks = sqlx::query_as::<_, (i64, String, Option<i64>, Option<i64>)>(
-            "SELECT id, title, track_number, disc_number FROM tracks WHERE album_id = ? ORDER BY disc_number, track_number, id",
+        let tracks = sqlx::query_as::<_, (i64, String, Option<i64>, Option<i64>, Option<i64>)>(
+            "SELECT id, title, track_number, disc_number, duration_seconds FROM tracks WHERE album_id = ? ORDER BY disc_number, track_number, id",
         )
         .bind(id)
         .fetch_all(p)
