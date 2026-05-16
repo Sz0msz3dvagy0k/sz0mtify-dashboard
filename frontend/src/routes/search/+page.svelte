@@ -9,6 +9,7 @@
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
 	import { coverUrl, formatDuration } from '$lib/format';
 	import { player, playQueue, type QueueTrack } from '$lib/player';
+	import { swipeQueue } from '$lib/swipeQueue';
 
 	let query = '';
 	let loadedQuery = '';
@@ -64,7 +65,7 @@
 			<SectionHeader title="Tracks" eyebrow={`${result.tracks.length} results`} />
 			<div class="panel-list search-results">
 				{#each result.tracks as row, index}
-					<button class="search-result-row" class:playing-row={row[0] === playingTrackId} on:click={() => playTrack(index)}>
+					<button use:swipeQueue={{ track: trackQueue[index] }} class="search-result-row" class:playing-row={row[0] === playingTrackId} on:click={() => playTrack(index)}>
 						<div class="search-result-art">
 							<ImageWithFallback src={coverUrl(row[5])} alt={row[1]} />
 						</div>

@@ -9,6 +9,7 @@
 	import StatCard from '$lib/components/StatCard.svelte';
 	import { coverUrl, formatDuration, formatNumber } from '$lib/format';
 	import { player, playQueue, type QueueTrack } from '$lib/player';
+	import { swipeQueue } from '$lib/swipeQueue';
 
 	let detail: PlaylistDetail | null = null;
 	let loading = true;
@@ -29,10 +30,8 @@
 		}
 	}
 
-	function queue(): QueueTrack[] {
-		const currentDetail = detail;
-		if (!currentDetail) return [];
-		return currentDetail.tracks.map((track) => ({
+	function trackToQueueItem(track: PlaylistDetail['tracks'][number], currentDetail: PlaylistDetail): QueueTrack {
+		return {
 			id: track[0],
 			title: track[1],
 			artist: track[2] ?? 'Unknown artist',
@@ -40,7 +39,13 @@
 			albumId: track[3],
 			coverArtId: track[5] ?? currentDetail.playlist.cover_art_id,
 			duration: track[6]
-		}));
+		};
+	}
+
+	function queue(): QueueTrack[] {
+		const currentDetail = detail;
+		if (!currentDetail) return [];
+		return currentDetail.tracks.map((track) => trackToQueueItem(track, currentDetail));
 	}
 
 	function play(startIndex = 0) {
@@ -50,6 +55,7 @@
 	$: playlistId = $page.params.id;
 	$: if (browser && playlistId && playlistId !== loadedPlaylistId) void load(playlistId);
 	$: playlistCoverArtId = detail?.playlist.cover_art_id ?? detail?.tracks.find((track) => track[5])?.[5] ?? null;
+	$: playlistQueue = queue();
 	$: playingTrackId = $player.isPlaying ? $player.queue[$player.currentIndex]?.id ?? null : null;
 </script>
 
@@ -90,7 +96,7 @@
 			</thead>
 			<tbody>
 				{#each detail.tracks as track, index}
-					<tr class:playing-row={track[0] === playingTrackId} on:click={() => play(index)}>
+					<tr use:swipeQueue={{ track: playlistQueue[index] }} class:playing-row={track[0] === playingTrackId} on:click={() => play(index)}>
 						<td>
 							{#if track[0] === playingTrackId}
 								<div class="playing-indicator" aria-label="Now playing"><span></span><span></span><span></span></div>

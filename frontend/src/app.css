@@ -360,6 +360,7 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 	background: #181818;
 }
 .search-result-art.artist { border-radius: 999px; }
+.swipe-queue-target { touch-action: pan-y; }
 .history-section + .history-section { margin-top: 20px; }
 
 .toolbar, .search-panel { display: flex; align-items: center; gap: 12px; margin: 20px 0; flex-wrap: wrap; }
@@ -989,6 +990,16 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 			max(16px, env(safe-area-inset-right))
 			calc(180px + env(safe-area-inset-bottom))
 			max(16px, env(safe-area-inset-left));
+	}
+	.swipe-queue-target {
+		transition: transform .16s ease, background .18s ease;
+	}
+	.swipe-queue-target.swiping-queue {
+		transform: translateX(calc(var(--swipe-progress, 0) * 18px));
+	}
+	.swipe-queue-target.queued-at-top,
+	.swipe-queue-target.queued-at-top td {
+		background: rgba(245,245,245,.18);
 	}
 	.playlist-table-wrap { overflow-x: hidden; }
 	.playlist-track-table {

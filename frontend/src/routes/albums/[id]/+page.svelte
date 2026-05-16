@@ -10,6 +10,7 @@
 	import StatCard from '$lib/components/StatCard.svelte';
 	import { coverUrl, formatDuration, formatNumber } from '$lib/format';
 	import { player, playQueue, type QueueTrack } from '$lib/player';
+	import { swipeQueue } from '$lib/swipeQueue';
 
 	let detail: AlbumDetail | null = null;
 	let artists: ArtistTuple[] = [];
@@ -41,6 +42,7 @@
 	$: if (browser && Number.isFinite(albumId) && albumId > 0 && albumId !== loadedAlbumId) void load(albumId);
 	$: artistName = detail?.artist_name ?? artists.find((artist) => artist[0] === album?.[2])?.[1] ?? 'Unknown artist';
 	$: albumTracks = detail?.tracks ?? [];
+	$: albumQueue = album ? albumTracks.map(trackToQueueItem) : [];
 	$: playingTrackId = $player.isPlaying ? $player.queue[$player.currentIndex]?.id ?? null : null;
 	$: trackParam = Number($page.url.searchParams.get('track'));
 	$: if (!loading && Number.isFinite(trackParam) && trackParam > 0 && trackParam !== lastHighlightedTrackParam) {
@@ -53,17 +55,21 @@
 		}, 1200);
 	}
 
-	function queue(): QueueTrack[] {
-		if (!album) return [];
-		return albumTracks.map((track) => ({
+	function trackToQueueItem(track: AlbumDetail['tracks'][number]): QueueTrack {
+		return {
 			id: track[0],
 			title: track[1],
 			artist: artistName,
-			album: album[1],
-			albumId: album[0],
-			coverArtId: album[6],
+			album: album?.[1] ?? 'Unknown album',
+			albumId: album?.[0] ?? null,
+			coverArtId: album?.[6] ?? null,
 			duration: track[4]
-		}));
+		};
+	}
+
+	function queue(): QueueTrack[] {
+		if (!album) return [];
+		return albumQueue;
 	}
 
 	function play(startIndex = 0) {
@@ -100,7 +106,7 @@
 			</thead>
 			<tbody>
 				{#each albumTracks as track, index}
-					<tr class:highlight-row={track[0] === highlightedTrackId} class:playing-row={track[0] === playingTrackId} on:click={() => play(index)}>
+					<tr use:swipeQueue={{ track: albumQueue[index] }} class:highlight-row={track[0] === highlightedTrackId} class:playing-row={track[0] === playingTrackId} on:click={() => play(index)}>
 						<td>
 							{#if track[0] === playingTrackId}
 								<div class="playing-indicator" aria-label="Now playing"><span></span><span></span><span></span></div>

@@ -83,6 +83,23 @@ export function playQueue(queue: QueueTrack[], startIndex = 0) {
 	}));
 }
 
+export function queueTrackAtTop(track: QueueTrack) {
+	player.update((state) => {
+		const currentTrack = state.currentIndex >= 0 ? state.queue[state.currentIndex] : null;
+		const queue = [track, ...state.queue.filter((queuedTrack) => queuedTrack.id !== track.id)];
+		const currentIndex = currentTrack
+			? queue.findIndex((queuedTrack) => queuedTrack.id === currentTrack.id)
+			: state.queue.length
+				? state.currentIndex
+				: 0;
+		return {
+			...state,
+			queue,
+			currentIndex: currentIndex >= 0 ? currentIndex : state.currentIndex
+		};
+	});
+}
+
 export function playIndex(index: number) {
 	player.update((state) => {
 		if (!state.queue.length) return state;
