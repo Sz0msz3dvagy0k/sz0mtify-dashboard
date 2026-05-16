@@ -42,7 +42,7 @@ pub struct DiscoveryRefreshQ {
 #[derive(Deserialize)]
 pub struct StreamQ {
     pub network: Option<String>,
-    pub lossless: Option<bool>,
+    pub lossless: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -479,7 +479,7 @@ pub async fn stream_track(
         &state.settings,
         track_id,
         params.network.as_deref(),
-        params.lossless.unwrap_or(false),
+        lossless_query_enabled(params.lossless.as_deref()),
         &headers,
     )
     .await
@@ -985,6 +985,13 @@ fn header_value_to_str(value: &HeaderValue) -> Option<&str> {
     value.to_str().ok().filter(|value| !value.trim().is_empty())
 }
 
+fn lossless_query_enabled(value: Option<&str>) -> bool {
+    matches!(
+        value.map(|value| value.trim().to_ascii_lowercase()),
+        Some(value) if matches!(value.as_str(), "1" | "true" | "yes" | "on")
+    )
+}
+
 fn non_empty_owned(value: &str) -> Option<String> {
     let value = value.trim();
     if value.is_empty() {
@@ -1231,6 +1238,17 @@ mod tests {
         assert!(
             resolve_artist_image_url("http://music.example", "/rest/getCoverArt?id=1").is_err()
         );
+    }
+
+    #[test]
+    fn lossless_query_accepts_browser_and_flag_values() {
+        assert!(lossless_query_enabled(Some("1")));
+        assert!(lossless_query_enabled(Some("true")));
+        assert!(lossless_query_enabled(Some("yes")));
+        assert!(lossless_query_enabled(Some("on")));
+        assert!(!lossless_query_enabled(Some("0")));
+        assert!(!lossless_query_enabled(Some("false")));
+        assert!(!lossless_query_enabled(None));
     }
 
     #[tokio::test]

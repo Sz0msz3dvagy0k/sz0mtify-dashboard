@@ -492,7 +492,7 @@ async function remoteLosslessStreamUrl(trackId: number): Promise<string> {
 	const payload = await response.json().catch(() => null);
 	const token = payload?.ok ? payload.data?.token : null;
 	if (!response.ok || !token) throw new Error('stream_token_unavailable');
-	return withStreamToken(`${apiBase()}/api/tracks/${trackId}/stream?lossless=1`, token);
+	return withStreamToken(`${apiBase()}/api/tracks/${trackId}/stream?lossless=true`, token);
 }
 
 async function downloadCoverIfNeeded(manifest: LocalMediaManifest, coverArtId: string | null): Promise<LocalImage | null> {
