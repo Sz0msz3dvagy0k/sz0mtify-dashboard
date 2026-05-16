@@ -2,6 +2,7 @@
 	import { browser } from '$app/environment';
 	import { page } from '$app/stores';
 	import { onDestroy } from 'svelte';
+	import { CheckCircle2, Download, Loader2 } from 'lucide-svelte';
 	import { api } from '$lib/api';
 	import type { AlbumDetail, ArtistTuple } from '$lib/types';
 	import EmptyState from '$lib/components/EmptyState.svelte';
@@ -9,6 +10,7 @@
 	import ImageWithFallback from '$lib/components/ImageWithFallback.svelte';
 	import StatCard from '$lib/components/StatCard.svelte';
 	import { coverUrl, formatDuration, formatNumber } from '$lib/format';
+	import { downloadAlbum, downloadTrack, localMedia, type DownloadProgress } from '$lib/localMedia';
 	import { player, playQueue, type QueueTrack } from '$lib/player';
 	import { swipeQueue } from '$lib/swipeQueue';
 
@@ -20,6 +22,9 @@
 	let highlightedTrackId: number | null = null;
 	let lastHighlightedTrackParam: number | null = null;
 	let highlightTimer: ReturnType<typeof setTimeout> | null = null;
+	let downloadingAlbum = false;
+	let downloadProgress: DownloadProgress | null = null;
+	let downloadingTracks = new Set<number>();
 
 	async function load(albumId: number) {
 		loading = true;
@@ -75,6 +80,50 @@
 	function play(startIndex = 0) {
 		playQueue(queue(), startIndex);
 	}
+
+	async function saveAlbumOffline() {
+		if (!detail?.album || downloadingAlbum) return;
+		downloadingAlbum = true;
+		downloadProgress = null;
+		try {
+			await downloadAlbum(detail, artistName, (progress) => {
+				downloadProgress = progress;
+			});
+		} catch (error) {
+			console.warn('Unable to download album', error);
+		} finally {
+			downloadingAlbum = false;
+			downloadProgress = null;
+		}
+	}
+
+	async function saveTrackOffline(track: AlbumDetail['tracks'][number], index: number) {
+		if (!album || downloadingTracks.has(track[0])) return;
+		downloadingTracks = new Set([...downloadingTracks, track[0]]);
+		try {
+			await downloadTrack(albumQueue[index], {
+				album: {
+					id: album[0],
+					title: album[1],
+					artistName,
+					year: album[3],
+					genre: album[4],
+					coverArtId: album[6],
+					sourceTrackCount: album[5],
+					trackNumber: track[2],
+					discNumber: track[3]
+				}
+			});
+		} catch (error) {
+			console.warn('Unable to download track', error);
+		} finally {
+			downloadingTracks.delete(track[0]);
+			downloadingTracks = new Set(downloadingTracks);
+		}
+	}
+
+	$: downloadedTrackIds = new Set(Object.keys($localMedia.tracks).map(Number));
+	$: albumDownloaded = albumTracks.length > 0 && albumTracks.every((track) => downloadedTrackIds.has(track[0]));
 </script>
 
 {#if loading}
@@ -96,13 +145,19 @@
 				<StatCard label="Genre" value={album[4] ?? '—'} />
 				<StatCard label="Tracks" value={formatNumber(albumTracks.length)} />
 			</div>
-			<button class="button" on:click={() => play(0)} disabled={!albumTracks.length}>Play Album</button>
+			<div class="action-row">
+				<button class="button" on:click={() => play(0)} disabled={!albumTracks.length}>Play Album</button>
+				<button class="button ghost" on:click={saveAlbumOffline} disabled={!albumTracks.length || downloadingAlbum || albumDownloaded}>
+					{#if downloadingAlbum}<Loader2 size={16} />{:else if albumDownloaded}<CheckCircle2 size={16} />{:else}<Download size={16} />{/if}
+					{albumDownloaded ? 'Downloaded' : downloadingAlbum ? `${downloadProgress?.completed ?? 0}/${downloadProgress?.total ?? albumTracks.length}` : 'Download Lossless'}
+				</button>
+			</div>
 		</div>
 	</section>
 	<div class="table-wrap">
 		<table class="track-table">
 			<thead>
-				<tr><th></th><th>#</th><th>Track</th><th>Time</th></tr>
+				<tr><th></th><th>#</th><th>Track</th><th>Time</th><th></th></tr>
 			</thead>
 			<tbody>
 				{#each albumTracks as track, index}
@@ -117,6 +172,16 @@
 						<td>{track[2] ?? '—'}</td>
 						<td>{track[1]}</td>
 						<td>{formatDuration(track[4])}</td>
+						<td>
+							<button
+								class="icon-button"
+								aria-label={downloadedTrackIds.has(track[0]) ? `${track[1]} downloaded` : `Download ${track[1]}`}
+								disabled={downloadedTrackIds.has(track[0]) || downloadingTracks.has(track[0])}
+								on:click|stopPropagation={() => saveTrackOffline(track, index)}
+							>
+								{#if downloadingTracks.has(track[0])}<Loader2 size={16} />{:else if downloadedTrackIds.has(track[0])}<CheckCircle2 size={16} />{:else}<Download size={16} />{/if}
+							</button>
+						</td>
 					</tr>
 				{/each}
 			</tbody>

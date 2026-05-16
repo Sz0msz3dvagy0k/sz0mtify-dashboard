@@ -1,6 +1,7 @@
 import { browser } from '$app/environment';
 import { getAuthToken } from '$lib/auth';
 import { apiBase } from '$lib/format';
+import { localImageObjectUrl } from '$lib/localMedia';
 
 const CACHE_NAME = 'music-dashboard-images-v1';
 const MAX_MEMORY_IMAGES = 240;
@@ -18,6 +19,9 @@ const memoryCache = new Map<string, ImageCacheEntry>();
 export async function loadCachedImage(src: string): Promise<string> {
 	const cacheKey = dashboardApiImageUrl(src);
 	if (!cacheKey) return src;
+
+	const localUrl = await localImageObjectUrl(cacheKey);
+	if (localUrl) return localUrl;
 
 	const existing = memoryCache.get(cacheKey);
 	const now = Date.now();

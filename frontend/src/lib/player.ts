@@ -3,6 +3,7 @@ import { browser } from '$app/environment';
 import { withStreamToken } from '$lib/auth';
 import { api } from '$lib/api';
 import { apiBase, coverUrl } from '$lib/format';
+import { localTrackUrl } from '$lib/localMedia';
 import { currentNetworkType } from '$lib/mobileNetwork';
 
 export type QueueTrack = {
@@ -169,10 +170,14 @@ async function streamToken() {
 	return cachedStreamToken.token;
 }
 
-export async function streamUrl(trackId: number) {
+export async function streamUrl(trackId: number, options: { lossless?: boolean } = {}) {
+	const localUrl = await localTrackUrl(trackId);
+	if (localUrl) return localUrl;
+
 	const [token, networkType] = await Promise.all([streamToken(), currentNetworkType()]);
 	const params = new URLSearchParams();
 	if (networkType !== 'unknown') params.set('network', networkType);
+	if (options.lossless) params.set('lossless', '1');
 	const query = params.toString();
 	return withStreamToken(`${apiBase()}/api/tracks/${trackId}/stream${query ? `?${query}` : ''}`, token);
 }

@@ -42,6 +42,7 @@ pub struct DiscoveryRefreshQ {
 #[derive(Deserialize)]
 pub struct StreamQ {
     pub network: Option<String>,
+    pub lossless: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -478,6 +479,7 @@ pub async fn stream_track(
         &state.settings,
         track_id,
         params.network.as_deref(),
+        params.lossless.unwrap_or(false),
         &headers,
     )
     .await
@@ -765,6 +767,7 @@ async fn fetch_track_stream(
     settings: &SettingsService,
     track_id: i64,
     network_type: Option<&str>,
+    lossless: bool,
     request_headers: &HeaderMap,
 ) -> Result<Response, TrackStreamError> {
     let track = sqlx::query_as::<_, (Option<String>, String, Option<String>, Option<String>)>(
@@ -788,7 +791,15 @@ async fn fetch_track_stream(
         content_type,
         suffix,
     };
-    fetch_subsonic_track_stream(pool, settings, &metadata, network_type, request_headers).await
+    fetch_subsonic_track_stream(
+        pool,
+        settings,
+        &metadata,
+        network_type,
+        lossless,
+        request_headers,
+    )
+    .await
 }
 
 async fn register_track_now_playing(
@@ -836,13 +847,14 @@ async fn fetch_subsonic_track_stream(
     settings: &SettingsService,
     metadata: &TrackStreamMetadata,
     network_type: Option<&str>,
+    lossless: bool,
     request_headers: &HeaderMap,
 ) -> Result<Response, TrackStreamError> {
     let cfg = SubsonicConfig::load(pool).await?;
     let url = format!("{}/rest/stream", cfg.base_url.trim_end_matches('/'));
     let mut query = crate::services::sync::subsonic_auth_query(&cfg);
     query.push(("id".to_string(), metadata.subsonic_id.clone()));
-    if let Some(quality) = stream_transcode_quality(pool, settings, network_type).await? {
+    if let Some(quality) = stream_transcode_quality(pool, settings, network_type, lossless).await? {
         query.push(("maxBitRate".to_string(), quality.to_string()));
         query.push(("format".to_string(), "mp3".to_string()));
     }
@@ -884,7 +896,12 @@ async fn stream_transcode_quality(
     pool: &sqlx::SqlitePool,
     settings: &SettingsService,
     network_type: Option<&str>,
+    lossless: bool,
 ) -> Result<Option<u16>, TrackStreamError> {
+    if lossless {
+        return Ok(None);
+    }
+
     let mode = settings
         .get_value(pool, "stream_transcode_mode")
         .await
@@ -1304,7 +1321,7 @@ mod tests {
         request_headers.insert(RANGE, HeaderValue::from_static("bytes=2-5"));
 
         let settings = SettingsService;
-        let response = fetch_track_stream(&pool, &settings, 1, None, &request_headers)
+        let response = fetch_track_stream(&pool, &settings, 1, None, false, &request_headers)
             .await
             .unwrap();
         server.await.unwrap();
@@ -1381,15 +1398,85 @@ mod tests {
         .unwrap();
 
         let settings = SettingsService;
-        let response = fetch_track_stream(&pool, &settings, 1, Some("cellular"), &HeaderMap::new())
-            .await
-            .unwrap();
+        let response = fetch_track_stream(
+            &pool,
+            &settings,
+            1,
+            Some("cellular"),
+            false,
+            &HeaderMap::new(),
+        )
+        .await
+        .unwrap();
         server.await.unwrap();
         let body = axum::body::to_bytes(response.into_body(), 1024)
             .await
             .unwrap();
 
         assert_eq!(&body[..], b"mp3");
+    }
+
+    #[tokio::test]
+    async fn track_stream_lossless_query_bypasses_transcoding_settings() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buffer = [0_u8; 4096];
+            let read = socket.read(&mut buffer).await.unwrap();
+            let request = String::from_utf8_lossy(&buffer[..read]);
+            assert!(request.starts_with("GET /rest/stream?"));
+            assert!(request.contains("id=subsonic-track"));
+            assert!(!request.contains("maxBitRate="));
+            assert!(!request.contains("format=mp3"));
+
+            let body = b"flac";
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: audio/flac\r\nContent-Length: {}\r\n\r\n",
+                body.len()
+            );
+            socket.write_all(response.as_bytes()).await.unwrap();
+            socket.write_all(body).await.unwrap();
+        });
+
+        let pool = test_pool().await;
+        sqlx::query(
+            "INSERT INTO settings(key,value) VALUES
+             ('subsonic_base_url', ?),
+             ('subsonic_username', 'user'),
+             ('subsonic_password', 'pass'),
+             ('stream_transcode_mode', 'always'),
+             ('stream_transcode_quality', '128')",
+        )
+        .bind(format!("http://{addr}"))
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO tracks(id,subsonic_id,title,content_type,suffix)
+             VALUES(1,'subsonic-track','Song','audio/flac','flac')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let settings = SettingsService;
+        let response = fetch_track_stream(
+            &pool,
+            &settings,
+            1,
+            Some("cellular"),
+            true,
+            &HeaderMap::new(),
+        )
+        .await
+        .unwrap();
+        server.await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), 1024)
+            .await
+            .unwrap();
+
+        assert_eq!(&body[..], b"flac");
     }
 
     #[tokio::test]
@@ -1401,7 +1488,7 @@ mod tests {
             .unwrap();
 
         let settings = SettingsService;
-        let result = fetch_track_stream(&pool, &settings, 1, None, &HeaderMap::new()).await;
+        let result = fetch_track_stream(&pool, &settings, 1, None, false, &HeaderMap::new()).await;
 
         assert!(matches!(result, Err(TrackStreamError::NotStreamable)));
     }

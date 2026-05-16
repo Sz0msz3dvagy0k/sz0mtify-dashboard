@@ -39,25 +39,34 @@ export async function initNetworkStatus() {
 }
 
 export async function currentNetworkType(): Promise<NetworkType> {
-	if (!browser) return 'unknown';
+	const status = await currentNetworkStatus();
+	return status.connectionType;
+}
+
+export async function currentNetworkStatus(): Promise<ConnectionStatus> {
+	if (!browser) return initialStatus;
 	if (!Capacitor.isNativePlatform()) {
 		const status = browserNetworkStatus();
 		networkStatus.set(status);
-		return status.connectionType;
+		return status;
 	}
 
 	try {
 		const status = await Network.getStatus();
 		networkStatus.set(status);
-		return status.connectionType;
+		return status;
 	} catch (error) {
 		const status = browserNetworkStatus();
 		networkStatus.set(status);
 		if (!isUnimplementedError(error)) {
 			console.warn('Unable to read Capacitor network status', error);
 		}
-		return status.connectionType;
+		return status;
 	}
+}
+
+export async function isOfflineMode(): Promise<boolean> {
+	return !(await currentNetworkStatus()).connected;
 }
 
 function updateBrowserNetworkStatus() {

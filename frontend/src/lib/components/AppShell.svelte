@@ -22,7 +22,8 @@
 	} from 'lucide-svelte';
 	import { api } from '$lib/api';
 	import { clearAuthSession, loadStoredSession } from '$lib/auth';
-	import { initNetworkStatus } from '$lib/mobileNetwork';
+	import { currentNetworkStatus, initNetworkStatus } from '$lib/mobileNetwork';
+	import { loadLocalMedia } from '$lib/localMedia';
 	import { warmStreamToken } from '$lib/player';
 	import type { AuthSession, PlaylistSummary } from '$lib/types';
 	import { onMount, tick } from 'svelte';
@@ -77,15 +78,24 @@
 			return;
 		}
 
+		void initNetworkStatus();
+		void loadLocalMedia();
+
 		try {
 			const user = await api.me();
 			accountName = user.username;
 			authenticated = true;
-			void initNetworkStatus();
 			void warmStreamToken().catch((error) => console.warn('Unable to warm stream token', error));
 			await loadShellData();
 		} catch {
-			clearAuthSession();
+			const status = await currentNetworkStatus();
+			if (!status.connected) {
+				accountName = session.username;
+				authenticated = true;
+				await loadShellData();
+			} else {
+				clearAuthSession();
+			}
 		} finally {
 			authChecked = true;
 		}
@@ -99,6 +109,7 @@
 		accountName = session.username;
 		authenticated = true;
 		void initNetworkStatus();
+		void loadLocalMedia();
 		void warmStreamToken().catch((error) => console.warn('Unable to warm stream token', error));
 		await loadShellData();
 	}

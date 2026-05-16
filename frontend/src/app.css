@@ -91,6 +91,8 @@ button { cursor: pointer; }
 }
 .topbar-heading { display: flex; align-items: center; gap: 14px; min-width: 0; }
 .topbar p, .eyebrow { margin: 0 0 4px; color: #737373; text-transform: uppercase; font-size: 12px; letter-spacing: .16em; }
+.section-heading { display: flex; align-items: end; justify-content: space-between; gap: 16px; }
+.section-heading h2 { margin: 0; }
 .topbar h1 { margin: 0; font-size: clamp(26px, 3vw, 42px); line-height: 1; }
 .topbar-search {
 	min-height: 44px;
@@ -363,7 +365,7 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 .swipe-queue-target { touch-action: pan-y; }
 .history-section + .history-section { margin-top: 20px; }
 
-.toolbar, .search-panel { display: flex; align-items: center; gap: 12px; margin: 20px 0; flex-wrap: wrap; }
+.toolbar, .search-panel, .action-row { display: flex; align-items: center; gap: 12px; margin: 20px 0; flex-wrap: wrap; }
 .filter-bar input, .search-panel input, select {
 	min-height: 42px;
 	padding: 0 12px;
@@ -381,12 +383,35 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 	border-radius: 6px;
 	background: #f5f5f5;
 	color: #050505;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
 	transition: box-shadow .18s ease, transform .18s ease;
 }
 .button.ghost { background: transparent; color: #f5f5f5; border-color: #404040; }
 .button:hover { box-shadow: 0 0 0 3px rgba(255,255,255,.12); transform: translateY(-1px); }
 .button:disabled { opacity: .45; cursor: not-allowed; }
 .check { color: #a3a3a3; font-size: 13px; }
+.local-media-section { margin: 22px 0 28px; display: grid; gap: 16px; }
+.local-media-panel { padding: 16px; }
+.local-media-panel > header { margin-bottom: 12px; font-weight: 700; }
+.local-media-row {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 10px;
+	padding: 10px 0;
+	border-bottom: 1px solid #262626;
+}
+.local-media-row:last-child { border-bottom: 0; }
+.local-media-row a { min-width: 0; display: grid; gap: 3px; color: inherit; text-decoration: none; }
+.local-media-row strong, .local-media-row span {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.local-media-row span { color: #8a8a8a; font-size: 13px; }
 .items-per-page {
 	display: flex;
 	align-items: center;

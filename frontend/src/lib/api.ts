@@ -1,5 +1,16 @@
 import { apiBase } from './format';
 import { clearAuthSession, getAuthToken } from './auth';
+import {
+	offlineAlbum,
+	offlineAlbums,
+	offlineArtists,
+	offlinePlaylist,
+	offlinePlaylists,
+	offlineSearch,
+	offlineStorageStats,
+	offlineTracks
+} from './localMedia';
+import { isOfflineMode } from './mobileNetwork';
 import type {
 	AlbumDetail,
 	AlbumTuple,
@@ -54,6 +65,22 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 	return payload.data;
 }
 
+async function offlineFallback<T>(remote: () => Promise<T>, local: () => Promise<T>): Promise<T> {
+	if (await isOfflineMode()) return local();
+	try {
+		return await remote();
+	} catch (error) {
+		if (isNetworkError(error) || (await isOfflineMode())) return local();
+		throw error;
+	}
+}
+
+function isNetworkError(error: unknown) {
+	if (error instanceof TypeError) return true;
+	if (!(error instanceof Error)) return false;
+	return /failed to fetch|networkerror|load failed/i.test(error.message);
+}
+
 export const api = {
 	health: () => fetch(`${apiBase()}/api/health`, { credentials: 'include' }).then((r) => r.json()),
 	login: (body: { username: string; password: string }) =>
@@ -70,17 +97,18 @@ export const api = {
 	syncSubsonic: () => request<unknown>('/api/sync/subsonic', { method: 'POST' }),
 	syncLastfm: () => request<unknown>('/api/sync/lastfm', { method: 'POST' }),
 	overview: () => request<Overview>('/api/library/overview'),
-	tracks: () => request<TrackTuple[]>('/api/library/tracks'),
-	albums: () => request<AlbumTuple[]>('/api/library/albums'),
-	album: (id: number) => request<AlbumDetail>(`/api/library/albums/${id}`),
+	tracks: () => offlineFallback(() => request<TrackTuple[]>('/api/library/tracks'), offlineTracks),
+	albums: () => offlineFallback(() => request<AlbumTuple[]>('/api/library/albums'), offlineAlbums),
+	album: (id: number) => offlineFallback(() => request<AlbumDetail>(`/api/library/albums/${id}`), () => offlineAlbum(id)),
 	nowPlaying: (id: number) => request<unknown>(`/api/tracks/${id}/now-playing`, { method: 'POST' }),
-	artists: () => request<ArtistTuple[]>('/api/library/artists'),
+	artists: () => offlineFallback(() => request<ArtistTuple[]>('/api/library/artists'), offlineArtists),
 	artist: (id: number) => request<ArtistDetail>(`/api/library/artists/${id}`),
 	genres: () => request<GenreTuple[]>('/api/library/genres'),
-	playlists: () => request<PlaylistSummary[]>('/api/playlists'),
-	playlist: (id: string) => request<PlaylistDetail>(`/api/playlists/${encodeURIComponent(id)}`),
+	playlists: () => offlineFallback(() => request<PlaylistSummary[]>('/api/playlists'), offlinePlaylists),
+	playlist: (id: string) =>
+		offlineFallback(() => request<PlaylistDetail>(`/api/playlists/${encodeURIComponent(id)}`), () => offlinePlaylist(id)),
 	audioQuality: () => request<[number | null, number | null, number][]>('/api/stats/audio-quality'),
-	storage: () => request<StorageStats>('/api/stats/storage'),
+	storage: () => offlineFallback(() => request<StorageStats>('/api/stats/storage'), offlineStorageStats),
 	metadataHealth: () => request<MetadataHealth>('/api/stats/metadata-health'),
 	listening: () => request<ListeningStats>('/api/stats/listening'),
 	timeline: () => request<[string, number][]>('/api/stats/timeline'),
@@ -91,5 +119,5 @@ export const api = {
 		request<DiscoveryRefresh>(`/api/discovery/refresh?limit=${limit}`, { method: 'POST' }),
 	rediscovery: () => request<{ tracks: [number, string, string | null, number | null, number, string | null][]; score_example: number }>('/api/recommendations/rediscovery'),
 	currentRotation: () => request<[number, string, string | null, number | null, number | null][]>('/api/recommendations/current-rotation'),
-	search: (q: string) => request<SearchResult>(`/api/search?q=${encodeURIComponent(q)}`)
+	search: (q: string) => offlineFallback(() => request<SearchResult>(`/api/search?q=${encodeURIComponent(q)}`), () => offlineSearch(q))
 };
