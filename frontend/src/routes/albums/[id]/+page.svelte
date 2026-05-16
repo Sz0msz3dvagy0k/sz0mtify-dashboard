@@ -8,7 +8,7 @@
 	import ErrorState from '$lib/components/ErrorState.svelte';
 	import ImageWithFallback from '$lib/components/ImageWithFallback.svelte';
 	import StatCard from '$lib/components/StatCard.svelte';
-	import { coverUrl, formatNumber } from '$lib/format';
+	import { coverUrl, formatDuration, formatNumber } from '$lib/format';
 	import { player, playQueue, type QueueTrack } from '$lib/player';
 
 	let detail: AlbumDetail | null = null;
@@ -62,7 +62,7 @@
 			album: album[1],
 			albumId: album[0],
 			coverArtId: album[6],
-			duration: null
+			duration: track[4]
 		}));
 	}
 
@@ -96,7 +96,7 @@
 	<div class="table-wrap">
 		<table class="track-table">
 			<thead>
-				<tr><th></th><th>#</th><th>Track</th><th>Disc</th></tr>
+				<tr><th></th><th>#</th><th>Track</th><th>Time</th></tr>
 			</thead>
 			<tbody>
 				{#each albumTracks as track, index}
@@ -110,7 +110,7 @@
 						</td>
 						<td>{track[2] ?? '—'}</td>
 						<td>{track[1]}</td>
-						<td>{track[3] ?? 1}</td>
+						<td>{formatDuration(track[4])}</td>
 					</tr>
 				{/each}
 			</tbody>

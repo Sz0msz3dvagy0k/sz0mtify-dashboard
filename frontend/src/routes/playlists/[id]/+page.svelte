@@ -79,7 +79,14 @@
 	<div class="table-wrap playlist-table-wrap">
 		<table class="track-table playlist-track-table">
 			<thead>
-				<tr><th></th><th></th><th>Track</th><th>Artist</th><th>Album</th><th>Duration</th></tr>
+				<tr>
+					<th></th>
+					<th></th>
+					<th>Track</th>
+					<th>Artist</th>
+					<th>Album</th>
+					<th><span class="playlist-desktop-duration-heading">Duration</span><span class="playlist-mobile-duration-heading">Time</span></th>
+				</tr>
 			</thead>
 			<tbody>
 				{#each detail.tracks as track, index}

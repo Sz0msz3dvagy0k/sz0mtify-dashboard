@@ -241,6 +241,7 @@ tr:hover td { background: #141414; }
 	white-space: nowrap;
 }
 .playlist-mobile-artist { display: none; }
+.playlist-mobile-duration-heading { display: none; }
 tr.highlight-row td { background: rgba(255,255,255,.16); transition: background .25s ease; }
 tr.playing-row td { background: rgba(245,245,245,.11); transition: background .25s ease; }
 .table-link { display: inline-flex; align-items: center; min-height: 24px; border-bottom: 1px solid #525252; }
@@ -1011,6 +1012,8 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 		padding-right: 10px;
 		text-align: right;
 	}
+	.playlist-desktop-duration-heading { display: none; }
+	.playlist-mobile-duration-heading { display: inline; }
 	.playlist-track-table td:nth-child(3) {
 		white-space: normal;
 	}

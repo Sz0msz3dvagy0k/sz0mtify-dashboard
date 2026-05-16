@@ -38,7 +38,7 @@ export type GenreTuple = [number, string, number | null, number | null, number |
 export type AlbumDetail = {
 	album: [number, string, number | null, number | null, string | null, number | null, string | null] | null;
 	artist_name: string | null;
-	tracks: [number, string, number | null, number | null][];
+	tracks: [number, string, number | null, number | null, number | null][];
 };
 
 export type ArtistDetail = {
