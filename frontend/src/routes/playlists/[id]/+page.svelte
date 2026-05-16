@@ -76,7 +76,7 @@
 		</div>
 	</section>
 
-	<div class="table-wrap">
+	<div class="table-wrap playlist-table-wrap">
 		<table class="track-table playlist-track-table">
 			<thead>
 				<tr><th></th><th></th><th>Track</th><th>Artist</th><th>Album</th><th>Duration</th></tr>
@@ -96,7 +96,10 @@
 								<ImageWithFallback src={coverUrl(track[5] ?? playlistCoverArtId)} alt={track[1]} />
 							</div>
 						</td>
-						<td>{track[1]}</td>
+						<td>
+							<span class="playlist-track-title">{track[1]}</span>
+							<span class="playlist-mobile-artist">{track[2] ?? 'Unknown artist'}</span>
+						</td>
 						<td>{track[2] ?? 'Unknown artist'}</td>
 						<td>{track[4] ?? track[7] ?? '—'}</td>
 						<td>{formatDuration(track[6])}</td>
