@@ -93,7 +93,7 @@ async fn run() -> anyhow::Result<()> {
     let pool = connect_sqlite_pool(&database_url).await?;
     migrate(&pool).await?;
     let sync = SyncService::new();
-    let auth = auth::AppAuth::from_env()?;
+    let auth = auth::AppAuth::from_env(pool.clone())?;
     let normalized_artist_credits = sync.normalize_artist_credits(&pool).await?;
     if normalized_artist_credits > 0 {
         info!(
@@ -118,6 +118,7 @@ async fn run() -> anyhow::Result<()> {
         .route("/api/auth/login", post(api::handlers::login))
         .route("/api/auth/logout", post(api::handlers::logout))
         .route("/api/auth/me", get(api::handlers::me))
+        .route("/api/auth/sessions", get(api::handlers::active_sessions))
         .route("/api/auth/stream-token", post(api::handlers::stream_token))
         .route(
             "/api/settings",

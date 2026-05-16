@@ -1,5 +1,5 @@
+use std::collections::HashMap;
 use std::{
-    collections::HashMap,
     env,
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -26,7 +26,7 @@ use tracing::warn;
 pub struct AppAuth {
     username: String,
     password_hash: [u8; 32],
-    sessions: Arc<Mutex<HashMap<String, Session>>>,
+    pool: sqlx::SqlitePool,
     stream_tokens: Arc<Mutex<HashMap<String, Session>>>,
     session_ttl: Duration,
     stream_token_ttl: Duration,
@@ -51,13 +51,23 @@ pub struct StreamToken {
     pub expires_at: u64,
 }
 
+#[derive(Clone, Serialize)]
+pub struct ActiveSession {
+    pub session_id: String,
+    pub username: String,
+    pub created_at: u64,
+    pub last_seen_at: u64,
+    pub expires_at: u64,
+    pub current: bool,
+}
+
 #[derive(Clone)]
 pub struct AuthUser {
     pub username: String,
 }
 
 impl AppAuth {
-    pub fn from_env() -> anyhow::Result<Self> {
+    pub fn from_env(pool: sqlx::SqlitePool) -> anyhow::Result<Self> {
         let username = env_string("APP_USERNAME").unwrap_or_else(|| "admin".to_string());
         let password_hash = match env_string("APP_PASSWORD_SHA256") {
             Some(value) => parse_password_hash(&value)?,
@@ -86,47 +96,129 @@ impl AppAuth {
         Ok(Self {
             username,
             password_hash,
-            sessions: Arc::new(Mutex::new(HashMap::new())),
+            pool,
             stream_tokens: Arc::new(Mutex::new(HashMap::new())),
             session_ttl,
             stream_token_ttl,
         })
     }
 
-    pub async fn login(&self, username: &str, password: &str) -> Option<AuthSession> {
+    pub async fn login(
+        &self,
+        username: &str,
+        password: &str,
+    ) -> anyhow::Result<Option<AuthSession>> {
         if username != self.username || !password_matches(&self.password_hash, password) {
             warn!(username, "failed login attempt");
-            return None;
+            return Ok(None);
         }
 
         let token = generate_token();
-        let expires_at = now_unix() + self.session_ttl.as_secs();
-        self.sessions.lock().await.insert(
-            token.clone(),
-            Session {
-                username: self.username.clone(),
-                expires_at,
-            },
-        );
+        let token_hash = token_hash(&token);
+        let created_at = now_unix();
+        let expires_at = created_at + self.session_ttl.as_secs();
 
-        Some(AuthSession {
+        sqlx::query(
+            "INSERT INTO app_sessions(token_hash, username, created_at, last_seen_at, expires_at)
+             VALUES(?, ?, ?, ?, ?)",
+        )
+        .bind(&token_hash)
+        .bind(&self.username)
+        .bind(created_at as i64)
+        .bind(created_at as i64)
+        .bind(expires_at as i64)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(Some(AuthSession {
             username: self.username.clone(),
             token,
             expires_at,
-        })
+        }))
     }
 
-    pub async fn logout(&self, token: &str) {
-        self.sessions.lock().await.remove(token);
+    pub async fn logout(&self, token: &str) -> anyhow::Result<()> {
+        sqlx::query("DELETE FROM app_sessions WHERE token_hash = ?")
+            .bind(token_hash(token))
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 
     pub async fn authenticate(&self, token: &str) -> Option<AuthUser> {
         let now = now_unix();
-        let mut sessions = self.sessions.lock().await;
-        sessions.retain(|_, session| session.expires_at > now);
-        sessions.get(token).map(|session| AuthUser {
-            username: session.username.clone(),
-        })
+        if let Err(error) = self.cleanup_expired_sessions(now).await {
+            warn!(error = %error, "failed to clean up expired sessions");
+        }
+
+        let row = match sqlx::query_as::<_, (String, i64)>(
+            "SELECT username, expires_at FROM app_sessions WHERE token_hash = ?",
+        )
+        .bind(token_hash(token))
+        .fetch_optional(&self.pool)
+        .await
+        {
+            Ok(row) => row,
+            Err(error) => {
+                warn!(error = %error, "failed to authenticate session");
+                return None;
+            }
+        };
+
+        let Some((username, expires_at)) = row else {
+            return None;
+        };
+
+        if expires_at <= now as i64 {
+            if let Err(error) = self.logout(token).await {
+                warn!(error = %error, "failed to remove expired session");
+            }
+            return None;
+        }
+
+        if let Err(error) =
+            sqlx::query("UPDATE app_sessions SET last_seen_at = ? WHERE token_hash = ?")
+                .bind(now as i64)
+                .bind(token_hash(token))
+                .execute(&self.pool)
+                .await
+        {
+            warn!(error = %error, "failed to update session last seen time");
+        }
+
+        Some(AuthUser { username })
+    }
+
+    pub async fn active_sessions(
+        &self,
+        current_token: Option<&str>,
+    ) -> anyhow::Result<Vec<ActiveSession>> {
+        let now = now_unix();
+        self.cleanup_expired_sessions(now).await?;
+        let current_hash = current_token.map(token_hash);
+        let rows = sqlx::query_as::<_, (String, String, i64, i64, i64)>(
+            "SELECT token_hash, username, created_at, last_seen_at, expires_at
+             FROM app_sessions
+             WHERE expires_at > ?
+             ORDER BY last_seen_at DESC, created_at DESC",
+        )
+        .bind(now as i64)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(
+                |(hash, username, created_at, last_seen_at, expires_at)| ActiveSession {
+                    session_id: hash.chars().take(12).collect(),
+                    current: current_hash.as_deref() == Some(hash.as_str()),
+                    username,
+                    created_at: created_at.max(0) as u64,
+                    last_seen_at: last_seen_at.max(0) as u64,
+                    expires_at: expires_at.max(0) as u64,
+                },
+            )
+            .collect())
     }
 
     pub async fn issue_stream_token(&self, username: &str) -> StreamToken {
@@ -150,6 +242,14 @@ impl AppAuth {
         tokens.get(token).map(|session| AuthUser {
             username: session.username.clone(),
         })
+    }
+
+    async fn cleanup_expired_sessions(&self, now: u64) -> anyhow::Result<()> {
+        sqlx::query("DELETE FROM app_sessions WHERE expires_at <= ?")
+            .bind(now as i64)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 }
 
@@ -244,6 +344,11 @@ fn generate_token() -> String {
     URL_SAFE_NO_PAD.encode(bytes)
 }
 
+fn token_hash(token: &str) -> String {
+    let digest = digest::digest(&digest::SHA256, token.as_bytes());
+    hex::encode(digest.as_ref())
+}
+
 fn now_unix() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -261,42 +366,70 @@ fn env_string(key: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sqlx::sqlite::SqlitePoolOptions;
 
-    #[tokio::test]
-    async fn login_issues_and_revokes_session_token() {
-        let auth = AppAuth {
+    async fn test_auth() -> AppAuth {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::query(
+            "CREATE TABLE app_sessions (
+                token_hash TEXT PRIMARY KEY,
+                username TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                last_seen_at INTEGER NOT NULL,
+                expires_at INTEGER NOT NULL
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        AppAuth {
             username: "admin".to_string(),
             password_hash: hash_password("secret"),
-            sessions: Arc::new(Mutex::new(HashMap::new())),
+            pool,
             stream_tokens: Arc::new(Mutex::new(HashMap::new())),
             session_ttl: Duration::from_secs(60),
             stream_token_ttl: Duration::from_secs(60),
-        };
+        }
+    }
 
-        assert!(auth.login("admin", "wrong").await.is_none());
+    #[tokio::test]
+    async fn login_issues_and_revokes_session_token() {
+        let auth = test_auth().await;
 
-        let session = auth.login("admin", "secret").await.unwrap();
+        assert!(auth.login("admin", "wrong").await.unwrap().is_none());
+
+        let session = auth.login("admin", "secret").await.unwrap().unwrap();
         assert_eq!(
             auth.authenticate(&session.token).await.unwrap().username,
             "admin"
         );
 
-        auth.logout(&session.token).await;
+        auth.logout(&session.token).await.unwrap();
         assert!(auth.authenticate(&session.token).await.is_none());
     }
 
     #[tokio::test]
-    async fn stream_tokens_are_separate_from_session_tokens() {
-        let auth = AppAuth {
-            username: "admin".to_string(),
-            password_hash: hash_password("secret"),
-            sessions: Arc::new(Mutex::new(HashMap::new())),
-            stream_tokens: Arc::new(Mutex::new(HashMap::new())),
-            session_ttl: Duration::from_secs(60),
-            stream_token_ttl: Duration::from_secs(60),
-        };
+    async fn active_sessions_marks_current_session() {
+        let auth = test_auth().await;
 
-        let session = auth.login("admin", "secret").await.unwrap();
+        let session = auth.login("admin", "secret").await.unwrap().unwrap();
+        let sessions = auth.active_sessions(Some(&session.token)).await.unwrap();
+
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].username, "admin");
+        assert!(sessions[0].current);
+    }
+
+    #[tokio::test]
+    async fn stream_tokens_are_separate_from_session_tokens() {
+        let auth = test_auth().await;
+
+        let session = auth.login("admin", "secret").await.unwrap().unwrap();
         assert!(auth
             .authenticate_stream_token(&session.token)
             .await

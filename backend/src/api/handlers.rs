@@ -68,21 +68,50 @@ pub async fn login(
     Json(payload): Json<LoginPayload>,
 ) -> impl IntoResponse {
     match state.auth.login(&payload.username, &payload.password).await {
-        Some(session) => (StatusCode::OK, ok(json!(session))),
-        None => (StatusCode::UNAUTHORIZED, err("invalid_credentials")),
+        Ok(Some(session)) => (StatusCode::OK, ok(json!(session))),
+        Ok(None) => (StatusCode::UNAUTHORIZED, err("invalid_credentials")),
+        Err(error) => {
+            warn!(error = %error, "failed to create login session");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                err("failed_to_create_session"),
+            )
+        }
     }
 }
 
 pub async fn logout(State(state): State<Arc<AppState>>, headers: HeaderMap) -> impl IntoResponse {
     if let Some(token) = bearer_token(&headers) {
-        state.auth.logout(token).await;
+        if let Err(error) = state.auth.logout(token).await {
+            warn!(error = %error, "failed to revoke session");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                err("failed_to_revoke_session"),
+            );
+        }
     }
 
-    ok(json!({"status": "signed_out"}))
+    (StatusCode::OK, ok(json!({"status": "signed_out"})))
 }
 
 pub async fn me(Extension(user): Extension<AuthUser>) -> Json<Value> {
     ok(json!({"username": user.username}))
+}
+
+pub async fn active_sessions(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    match state.auth.active_sessions(bearer_token(&headers)).await {
+        Ok(sessions) => (StatusCode::OK, ok(json!(sessions))),
+        Err(error) => {
+            warn!(error = %error, "failed to load active sessions");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                err("failed_to_load_sessions"),
+            )
+        }
+    }
 }
 
 pub async fn stream_token(

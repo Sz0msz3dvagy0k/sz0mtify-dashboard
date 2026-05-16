@@ -511,7 +511,18 @@ impl AnalyticsService {
 
     pub async fn search(&self, p: &sqlx::SqlitePool, q: &str) -> anyhow::Result<serde_json::Value> {
         let t = format!("%{}%", q);
-        let tracks = sqlx::query_as::<_, (i64, String, Option<String>, Option<i64>, Option<String>, Option<String>, Option<i64>)>(
+        let tracks = sqlx::query_as::<
+            _,
+            (
+                i64,
+                String,
+                Option<String>,
+                Option<i64>,
+                Option<String>,
+                Option<String>,
+                Option<i64>,
+            ),
+        >(
             "SELECT t.id,
                     t.title,
                     COALESCE(ar.name, album_artist.name),

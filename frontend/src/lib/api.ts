@@ -4,6 +4,7 @@ import type {
 	AlbumDetail,
 	AlbumTuple,
 	ApiEnvelope,
+	ActiveSession,
 	AuthSession,
 	AuthUser,
 	ArtistDetail,
@@ -59,6 +60,7 @@ export const api = {
 		request<AuthSession>('/api/auth/login', { method: 'POST', body: JSON.stringify(body) }),
 	logout: () => request<{ status: string }>('/api/auth/logout', { method: 'POST' }),
 	me: () => request<AuthUser>('/api/auth/me'),
+	activeSessions: () => request<ActiveSession[]>('/api/auth/sessions'),
 	streamToken: () => request<StreamToken>('/api/auth/stream-token', { method: 'POST' }),
 	settings: () => request<[string, string][]>('/api/settings'),
 	saveSettings: (body: Record<string, unknown>) =>

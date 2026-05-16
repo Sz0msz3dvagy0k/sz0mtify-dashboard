@@ -15,6 +15,15 @@ export type StreamToken = {
 	expires_at: number;
 };
 
+export type ActiveSession = {
+	session_id: string;
+	username: string;
+	created_at: number;
+	last_seen_at: number;
+	expires_at: number;
+	current: boolean;
+};
+
 export type Overview = {
 	total_tracks: number;
 	total_albums: number;

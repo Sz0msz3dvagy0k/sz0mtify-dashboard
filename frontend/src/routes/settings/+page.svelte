@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api';
-	import type { SyncStatus } from '$lib/types';
+	import type { ActiveSession, SyncStatus } from '$lib/types';
 	import DataTable from '$lib/components/DataTable.svelte';
 	import ErrorState from '$lib/components/ErrorState.svelte';
 	import StatCard from '$lib/components/StatCard.svelte';
@@ -11,6 +11,7 @@
 	let health: { ok: boolean; status: string } | null = null;
 	let status: SyncStatus = [];
 	let settings: [string, string][] = [];
+	let sessions: ActiveSession[] = [];
 	let message = '';
 	let error = '';
 	let busy = '';
@@ -20,13 +21,28 @@
 	async function load() {
 		error = '';
 		try {
-			[health, status, settings] = await Promise.all([api.health(), api.syncStatus(), api.settings()]);
+			[health, status, settings, sessions] = await Promise.all([
+				api.health(),
+				api.syncStatus(),
+				api.settings(),
+				api.activeSessions()
+			]);
 			const settingsMap = new Map(settings);
 			transcodeMode = settingsMap.get('stream_transcode_mode') ?? 'never';
 			transcodeQuality = settingsMap.get('stream_transcode_quality') ?? '192';
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Unable to load settings';
 		}
+	}
+
+	function formatSessionTime(value: number) {
+		if (!value) return '—';
+		return new Intl.DateTimeFormat(undefined, {
+			month: 'short',
+			day: 'numeric',
+			hour: '2-digit',
+			minute: '2-digit'
+		}).format(new Date(value * 1000));
 	}
 
 	async function saveTranscoding() {
@@ -65,6 +81,13 @@
 		void load();
 	});
 	$: safeSettings = settings.map(([key, value]) => [key, /key|password|token|secret/i.test(key) ? '••••••••' : value]);
+	$: sessionRows = sessions.map((session) => [
+		session.current ? `${session.session_id} · current` : session.session_id,
+		session.username,
+		formatSessionTime(session.last_seen_at),
+		formatSessionTime(session.created_at),
+		formatSessionTime(session.expires_at)
+	]);
 </script>
 
 {#if error}<ErrorState message={error} retry={load} />{/if}
@@ -72,6 +95,7 @@
 	<StatCard label="Backend" value={health?.status ?? 'unknown'} meta={apiBase()} />
 	<StatCard label="Sync Rows" value={status.length} />
 	<StatCard label="Stored Settings" value={settings.length} meta="secrets masked" />
+	<StatCard label="Active Sessions" value={sessions.length} />
 	<StatCard label="Network" value={$networkStatus.connectionType} meta={$networkStatus.connected ? 'connected' : 'offline'} />
 </section>
 <div class="toolbar">
@@ -106,5 +130,6 @@
 	</label>
 	<button class="button" disabled={!!busy} on:click={saveTranscoding}>Save Playback</button>
 </section>
+<DataTable columns={['Session', 'User', 'Last Seen', 'Created', 'Expires']} rows={sessionRows} />
 <DataTable columns={['ID', 'Source', 'Last Sync', 'Status', 'Error']} rows={status} />
 <DataTable columns={['Setting', 'Value']} rows={safeSettings} />
