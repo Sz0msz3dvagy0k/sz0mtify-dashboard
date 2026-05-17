@@ -537,6 +537,35 @@ pub async fn track_now_playing(
     }
 }
 
+pub async fn track_scrobble(
+    State(state): State<Arc<AppState>>,
+    Path(track_id): Path<i64>,
+) -> impl IntoResponse {
+    if track_id <= 0 {
+        return (StatusCode::BAD_REQUEST, err("invalid_track_id")).into_response();
+    }
+
+    match register_track_scrobble(&state.pool, track_id).await {
+        Ok(()) => ok(json!({"track_id": track_id, "status": "scrobbled"})).into_response(),
+        Err(TrackStreamError::NotFound) => {
+            (StatusCode::NOT_FOUND, err("track_not_found")).into_response()
+        }
+        Err(TrackStreamError::NotStreamable) => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            err("track_not_streamable"),
+        )
+            .into_response(),
+        Err(TrackStreamError::UpstreamNotFound) => {
+            (StatusCode::NOT_FOUND, err("track_not_found_upstream")).into_response()
+        }
+        Err(TrackStreamError::UpstreamRangeNotSatisfiable(response)) => response,
+        Err(TrackStreamError::Upstream(error)) => {
+            warn!(track_id, error = %error, "failed to scrobble Subsonic track");
+            (StatusCode::BAD_GATEWAY, err("failed_to_scrobble_track")).into_response()
+        }
+    }
+}
+
 pub async fn cover(
     State(state): State<Arc<AppState>>,
     Path(cover_art_id): Path<String>,
@@ -806,15 +835,31 @@ async fn register_track_now_playing(
     pool: &sqlx::SqlitePool,
     track_id: i64,
 ) -> Result<(), TrackStreamError> {
+    register_subsonic_scrobble(pool, track_id, false).await
+}
+
+async fn register_track_scrobble(
+    pool: &sqlx::SqlitePool,
+    track_id: i64,
+) -> Result<(), TrackStreamError> {
+    register_subsonic_scrobble(pool, track_id, true).await
+}
+
+async fn register_subsonic_scrobble(
+    pool: &sqlx::SqlitePool,
+    track_id: i64,
+    submission: bool,
+) -> Result<(), TrackStreamError> {
     let subsonic_id = track_subsonic_id(pool, track_id).await?;
     let time = chrono::Utc::now().timestamp_millis().to_string();
+    let submission = if submission { "true" } else { "false" }.to_string();
     subsonic_json(
         pool,
         "scrobble",
         &[
             ("id", subsonic_id),
             ("time", time),
-            ("submission", "false".to_string()),
+            ("submission", submission),
         ],
     )
     .await
@@ -1509,5 +1554,53 @@ mod tests {
         let result = fetch_track_stream(&pool, &settings, 1, None, false, &HeaderMap::new()).await;
 
         assert!(matches!(result, Err(TrackStreamError::NotStreamable)));
+    }
+
+    #[tokio::test]
+    async fn track_playback_uses_now_playing_and_completed_scrobble_submissions() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            for expected_submission in ["submission=false", "submission=true"] {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut buffer = [0_u8; 4096];
+                let read = socket.read(&mut buffer).await.unwrap();
+                let request = String::from_utf8_lossy(&buffer[..read]);
+                assert!(request.starts_with("GET /rest/scrobble?"));
+                assert!(request.contains("id=subsonic-track"));
+                assert!(request.contains(expected_submission));
+
+                let body = br#"{"subsonic-response":{"status":"ok"}}"#;
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n",
+                    body.len()
+                );
+                socket.write_all(response.as_bytes()).await.unwrap();
+                socket.write_all(body).await.unwrap();
+            }
+        });
+
+        let pool = test_pool().await;
+        sqlx::query(
+            "INSERT INTO settings(key,value) VALUES
+             ('subsonic_base_url', ?),
+             ('subsonic_username', 'user'),
+             ('subsonic_password', 'pass')",
+        )
+        .bind(format!("http://{addr}"))
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO tracks(id,subsonic_id,title)
+             VALUES(1,'subsonic-track','Song')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        register_track_now_playing(&pool, 1).await.unwrap();
+        register_track_scrobble(&pool, 1).await.unwrap();
+        server.await.unwrap();
     }
 }

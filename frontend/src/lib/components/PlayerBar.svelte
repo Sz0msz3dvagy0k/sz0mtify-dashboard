@@ -37,6 +37,10 @@
 	let progressInput: HTMLInputElement;
 	let lastTrackId: number | null = null;
 	let registeredTrackId: number | null = null;
+	let scrobbledTrackId: number | null = null;
+	let scrobbleRequestTrackId: number | null = null;
+	let lastScrobbleAttemptTrackId: number | null = null;
+	let lastScrobbleAttemptAt = 0;
 	let pendingAutoplayTrackId: number | null = null;
 	let expanded = false;
 	let playerTouchStartY = 0;
@@ -69,6 +73,9 @@
 
 	$: if (audio && currentTrack && currentTrack.id !== lastTrackId) {
 		lastTrackId = currentTrack.id;
+		scrobbledTrackId = null;
+		lastScrobbleAttemptTrackId = null;
+		lastScrobbleAttemptAt = 0;
 		void loadTrackStream(currentTrack.id, ++streamRequestId);
 	}
 
@@ -308,6 +315,43 @@
 		} finally {
 			if (playRequestTrackId === trackId) playRequestTrackId = null;
 		}
+	}
+
+	function maybeScrobbleCurrentTrack() {
+		if (!audio || !currentTrack || !$player.isPlaying || audio.paused) return;
+		const trackId = currentTrack.id;
+		if (scrobbledTrackId === trackId || scrobbleRequestTrackId === trackId) return;
+		if (lastScrobbleAttemptTrackId === trackId && Date.now() - lastScrobbleAttemptAt < 60_000) return;
+
+		const duration = playbackDuration(currentTrack.duration);
+		const currentTime = Number.isFinite(audio.currentTime) ? audio.currentTime : $player.currentTime;
+		if (currentTime < scrobbleThreshold(duration)) return;
+
+		scrobbleRequestTrackId = trackId;
+		lastScrobbleAttemptTrackId = trackId;
+		lastScrobbleAttemptAt = Date.now();
+		void api
+			.scrobble(trackId)
+			.then(() => {
+				if (currentTrack?.id === trackId) scrobbledTrackId = trackId;
+			})
+			.catch((error) => {
+				console.warn('Unable to scrobble track', error);
+			})
+			.finally(() => {
+				if (scrobbleRequestTrackId === trackId) scrobbleRequestTrackId = null;
+			});
+	}
+
+	function playbackDuration(fallback: number | null | undefined) {
+		if (audio && Number.isFinite(audio.duration) && audio.duration > 0) return audio.duration;
+		if ($player.duration > 0) return $player.duration;
+		return fallback && fallback > 0 ? fallback : 0;
+	}
+
+	function scrobbleThreshold(duration: number) {
+		if (duration <= 0) return 30;
+		return Math.max(30, Math.min(duration / 2, 240));
 	}
 
 	function handleMediaReady(eventName: string) {
@@ -551,6 +595,7 @@
 	on:timeupdate={() => {
 		setTime(audio.currentTime, audio.duration);
 		syncDisplayedTime();
+		maybeScrobbleCurrentTrack();
 	}}
 	on:loadedmetadata={() => handleMediaReady('loadedmetadata')}
 	on:canplay={() => handleMediaReady('canplay')}

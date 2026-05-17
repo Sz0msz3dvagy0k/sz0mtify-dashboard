@@ -185,6 +185,10 @@ async fn run() -> anyhow::Result<()> {
             post(api::handlers::track_now_playing),
         )
         .route(
+            "/api/tracks/:track_id/scrobble",
+            post(api::handlers::track_scrobble),
+        )
+        .route(
             "/api/artist-image/:artist_id",
             get(api::handlers::artist_image),
         )

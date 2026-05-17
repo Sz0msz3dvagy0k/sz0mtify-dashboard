@@ -101,6 +101,7 @@ export const api = {
 	albums: () => offlineFallback(() => request<AlbumTuple[]>('/api/library/albums'), offlineAlbums),
 	album: (id: number) => offlineFallback(() => request<AlbumDetail>(`/api/library/albums/${id}`), () => offlineAlbum(id)),
 	nowPlaying: (id: number) => request<unknown>(`/api/tracks/${id}/now-playing`, { method: 'POST' }),
+	scrobble: (id: number) => request<unknown>(`/api/tracks/${id}/scrobble`, { method: 'POST' }),
 	artists: () => offlineFallback(() => request<ArtistTuple[]>('/api/library/artists'), offlineArtists),
 	artist: (id: number) => request<ArtistDetail>(`/api/library/artists/${id}`),
 	genres: () => request<GenreTuple[]>('/api/library/genres'),
