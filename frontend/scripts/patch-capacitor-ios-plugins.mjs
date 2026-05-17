@@ -7,8 +7,12 @@ const preferencesPlugin = join(
 	root,
 	'node_modules/@capacitor/preferences/ios/Sources/PreferencesPlugin/PreferencesPlugin.swift'
 );
+const filesystemSources = join(
+	root,
+	'node_modules/@capacitor/filesystem/ios/Sources/FilesystemPlugin'
+);
 
-const patched = `import Foundation
+const patchedPreferences = `import Foundation
 import Capacitor
 
 @objc(PreferencesPlugin)
@@ -138,20 +142,634 @@ public class PreferencesPlugin: CAPPlugin, CAPBridgedPlugin {
 }
 `;
 
-let source;
-try {
-	source = readFileSync(preferencesPlugin, 'utf8');
-} catch {
-	process.exit(0);
+function patchFile(path, patched, marker, label) {
+	let source;
+	try {
+		source = readFileSync(path, 'utf8');
+	} catch {
+		return;
+	}
+
+	if (source === patched) {
+		return;
+	}
+
+	if (!source.includes(marker)) {
+		throw new Error(`Unexpected ${label} layout at ${path}`);
+	}
+
+	writeFileSync(path, patched);
+	console.log(`Patched ${label} for SwiftPM compatibility`);
 }
 
-if (source === patched) {
-	process.exit(0);
+patchFile(preferencesPlugin, patchedPreferences, 'public class PreferencesPlugin', '@capacitor/preferences iOS source');
+
+const patchedFilesystemAccelerators = `import Capacitor
+import Foundation
+import IONFilesystemLib
+import ObjectiveC
+
+extension CAPPluginCall {
+    func getEncoding(_ key: String) -> IONFILEEncoding {
+        if let encodingParameter = stringValue(key) {
+            .string(encoding: .create(from: encodingParameter))
+        } else {
+            .byteBuffer
+        }
+    }
+
+    func getSearchPath(_ key: String) -> IONFILESearchPath {
+        getSearchPath(key, withDefaultSearchPath: .raw, andDefaultDirectoryType: .document)
+    }
+
+    func getSearchPath(_ key: String, withDefault defaultValue: IONFILESearchPath) -> IONFILESearchPath {
+        getSearchPath(key, withDefaultSearchPath: defaultValue)
+    }
+
+    func getEncodingMapper() -> IONFILEEncodingValueMapper? {
+        guard let data: String = stringValue(Constants.MethodParameter.data) else {
+            return nil
+        }
+        return switch getEncoding(Constants.MethodParameter.encoding) {
+        case .byteBuffer:
+            if let base64Data = Self.data(base64EncodedOrDataUrl: data) {
+                .byteBuffer(value: base64Data)
+            } else {
+                nil
+            }
+        case .string(encoding: let stringEncoding):
+            .string(encoding: stringEncoding, value: data)
+        @unknown default: nil
+        }
+    }
+
+    func getIONFileMethod() -> IONFileMethod {
+        return IONFileMethod(rawValue: self.methodName) ?? IONFileMethod.getUri
+    }
+
+    func handleSuccess(_ data: PluginCallResultData?, _ keepCallAlive: Bool = false) {
+        keepAlive = keepCallAlive
+        if let data {
+            resolve(data)
+        } else {
+            resolve()
+        }
+    }
+
+    func handlePermissionSuccess() {
+        handleSuccess([Constants.ResultDataKey.publicStorage: Constants.ResultDataValue.granted])
+    }
+
+    func handleError(_ error: FilesystemError) {
+        let errorPair = error.toCodeMessagePair()
+        rejectCall(errorPair.message, errorPair.code)
+    }
+
+    func stringValue(_ key: String) -> String? {
+        if let value = options[key] as? String, !value.isEmpty {
+            return value
+        }
+        return nil
+    }
+
+    func stringValue(_ key: String, _ defaultValue: String) -> String {
+        stringValue(key) ?? defaultValue
+    }
+
+    func intValue(_ key: String) -> Int? {
+        if let value = options[key] as? Int {
+            return value
+        }
+        if let value = options[key] as? NSNumber {
+            return value.intValue
+        }
+        if let value = options[key] as? String {
+            return Int(value)
+        }
+        return nil
+    }
+
+    func intValue(_ key: String, _ defaultValue: Int) -> Int {
+        intValue(key) ?? defaultValue
+    }
+
+    func boolValue(_ key: String, _ defaultValue: Bool) -> Bool {
+        if let value = options[key] as? Bool {
+            return value
+        }
+        if let value = options[key] as? NSNumber {
+            return value.boolValue
+        }
+        if let value = options[key] as? String {
+            return ["true", "1", "yes"].contains(value.lowercased())
+        }
+        return defaultValue
+    }
+
+    func rejectCall(_ message: String, _ code: String? = nil, _ error: Error? = nil, _ data: PluginCallResultData? = nil) {
+        let selector = NSSelectorFromString("reject::::")
+        guard let method = class_getInstanceMethod(CAPPluginCall.self, selector) else {
+            NSLog("Unable to reject Capacitor filesystem call because the reject selector is unavailable: %@", message)
+            return
+        }
+        typealias RejectFunction = @convention(c) (CAPPluginCall, Selector, NSString, NSString?, NSError?, NSDictionary?) -> Void
+        let function = unsafeBitCast(method_getImplementation(method), to: RejectFunction.self)
+        function(self, selector, message as NSString, code.map { $0 as NSString }, error as NSError?, data.map { $0 as NSDictionary })
+    }
+
+    private static func data(base64EncodedOrDataUrl value: String) -> Data? {
+        if value.hasPrefix("data:"), let range = value.range(of: "base64,") {
+            return Data(base64Encoded: String(value[range.upperBound...]))
+        }
+        return Data(base64Encoded: value)
+    }
+
+    private func getSearchPath(
+        _ key: String, withDefaultSearchPath defaultSearchPath: IONFILESearchPath, andDefaultDirectoryType defaultDirectoryType: IONFILEDirectoryType? = nil
+    ) -> IONFILESearchPath {
+        guard let directoryParameter = stringValue(key), directoryParameter.isEmpty == false else {
+            return defaultSearchPath
+        }
+
+        return if let type = IONFILEDirectoryType.create(from: directoryParameter) ?? defaultDirectoryType {
+            .directory(type: type)
+        } else {
+            defaultSearchPath
+        }
+    }
+}
+`;
+
+const patchedFilesystemLocationResolver = `import Capacitor
+import Foundation
+import IONFilesystemLib
+
+struct FilesystemLocationResolver {
+    let service: FileService
+
+    func resolveSinglePath(from call: CAPPluginCall) -> Result<URL, FilesystemError> {
+        guard let path = call.stringValue(Constants.MethodParameter.path) else {
+            return .failure(.invalidInput(method: call.getIONFileMethod()))
+        }
+
+        let directory = call.getSearchPath(Constants.MethodParameter.directory)
+        return resolveURL(path: path, directory: directory)
+    }
+
+    func resolveDualPaths(from call: CAPPluginCall) -> Result<(source: URL, destination: URL), FilesystemError> {
+        guard let fromPath = call.stringValue(Constants.MethodParameter.from), let toPath = call.stringValue(Constants.MethodParameter.to) else {
+            return .failure(.invalidInput(method: call.getIONFileMethod()))
+        }
+
+        let fromDirectory = call.getSearchPath(Constants.MethodParameter.directory)
+        let toDirectory = call.getSearchPath(Constants.MethodParameter.toDirectory, withDefault: fromDirectory)
+
+        return resolveURL(path: fromPath, directory: fromDirectory)
+            .flatMap { sourceURL in
+                resolveURL(path: toPath, directory: toDirectory)
+                    .map { (source: sourceURL, destination: $0) }
+            }
+    }
+
+    private func resolveURL(path: String, directory: IONFILESearchPath) -> Result<URL, FilesystemError> {
+        return if let url = try? service.getFileURL(atPath: path, withSearchPath: directory) {
+            .success(url)
+        } else {
+            .failure(.invalidPath(path))
+        }
+    }
+}
+`;
+
+const patchedLegacyFilesystem = `import Foundation
+import Capacitor
+
+@objc public class LegacyFilesystemImplementation: NSObject {
+
+    public typealias ProgressEmitter = (_ bytes: Int64, _ contentLength: Int64) -> Void
+
+    // swiftlint:disable function_body_length
+    @objc public func downloadFile(call: CAPPluginCall, emitter: @escaping ProgressEmitter, config: InstanceConfiguration?) throws {
+        let directory = call.stringValue("directory", "DOCUMENTS")
+        guard let path = call.stringValue("path") else {
+            call.rejectCall("Invalid file path")
+            return
+        }
+        guard var urlString = call.stringValue("url") else { throw URLError(.badURL) }
+
+        func handleDownload(downloadLocation: URL?, response: URLResponse?, error: Error?) {
+            if let error = error {
+                CAPLog.print("Error on download file", String(describing: downloadLocation), String(describing: response), String(describing: error))
+                call.rejectCall(error.localizedDescription, "DOWNLOAD", error)
+                return
+            }
+
+            if let httpResponse = response as? HTTPURLResponse {
+                if !(200...299).contains(httpResponse.statusCode) {
+                    CAPLog.print("Error downloading file:", urlString, httpResponse)
+                    call.rejectCall("Error downloading file: \\(urlString)", "DOWNLOAD")
+                    return
+                }
+            }
+
+            guard let location = downloadLocation else {
+                call.rejectCall("Unable to get file after downloading")
+                return
+            }
+
+            let fileManager = FileManager.default
+
+            if let foundDir = getDirectory(directory: directory) {
+                let dir = fileManager.urls(for: foundDir, in: .userDomainMask).first
+
+                do {
+                    let dest = dir!.appendingPathComponent(path)
+                    CAPLog.print("Attempting to write to file destination: \\(dest.absoluteString)")
+
+                    if !FileManager.default.fileExists(atPath: dest.deletingLastPathComponent().absoluteString) {
+                        try FileManager.default.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: nil)
+                    }
+
+                    if FileManager.default.fileExists(atPath: dest.relativePath) {
+                        do {
+                            CAPLog.print("File already exists. Attempting to remove file before writing.")
+                            try fileManager.removeItem(at: dest)
+                        } catch let error {
+                            call.rejectCall("Unable to remove existing file: \\(error.localizedDescription)")
+                            return
+                        }
+                    }
+
+                    try fileManager.moveItem(at: location, to: dest)
+                    CAPLog.print("Downloaded file successfully! \\(dest.absoluteString)")
+                    call.resolve(["path": dest.absoluteString])
+                } catch let error {
+                    call.rejectCall("Unable to download file: \\(error.localizedDescription)", "DOWNLOAD", error)
+                    return
+                }
+            } else {
+                call.rejectCall("Unable to download file. Couldn't find directory \\(directory)")
+            }
+        }
+
+        let method = call.stringValue("method", "GET")
+
+        let headers = (call.options["headers"] as? [String: Any]) ?? [:]
+        let params = (call.options["params"] as? [String: Any]) ?? [:]
+        let connectTimeout = call.options["connectTimeout"] as? Double
+        let readTimeout = call.options["readTimeout"] as? Double
+
+        if urlString == urlString.removingPercentEncoding {
+            guard let encodedUrlString = urlString.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed)  else { throw URLError(.badURL) }
+            urlString = encodedUrlString
+        }
+
+        let progress = (call.options["progress"] as? Bool) ?? false
+
+        let request = try HttpRequestHandler.CapacitorHttpRequestBuilder()
+            .setUrl(urlString)
+            .setMethod(method)
+            .setUrlParams(params)
+            .openConnection()
+            .build()
+
+        request.setRequestHeaders(headers)
+
+        // Timeouts in iOS are in seconds. So read the value in millis and divide by 1000
+        let timeout = (connectTimeout ?? readTimeout ?? 600000.0) / 1000.0
+        request.setTimeout(timeout)
+
+        var session: URLSession!
+        var task: URLSessionDownloadTask!
+        let urlRequest = request.getUrlRequest()
+
+        if progress {
+            class ProgressDelegate: NSObject, URLSessionDataDelegate, URLSessionDownloadDelegate {
+                private var handler: (URL?, URLResponse?, Error?) -> Void
+                private var downloadLocation: URL?
+                private var response: URLResponse?
+                private var emitter: (Int64, Int64) -> Void
+                private var lastEmitTimestamp: TimeInterval = 0.0
+
+                init(downloadHandler: @escaping (URL?, URLResponse?, Error?) -> Void, progressEmitter: @escaping (Int64, Int64) -> Void) {
+                    handler = downloadHandler
+                    emitter = progressEmitter
+                }
+
+                func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
+                    let currentTimestamp = Date().timeIntervalSince1970
+                    let timeElapsed = currentTimestamp - lastEmitTimestamp
+
+                    if totalBytesExpectedToWrite > 0 {
+                        if timeElapsed >= 0.1 {
+                            emitter(totalBytesWritten, totalBytesExpectedToWrite)
+                            lastEmitTimestamp = currentTimestamp
+                        }
+                    } else {
+                        emitter(totalBytesWritten, 0)
+                        lastEmitTimestamp = currentTimestamp
+                    }
+                }
+
+                func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+                    downloadLocation = location
+                    handler(downloadLocation, downloadTask.response, downloadTask.error)
+                }
+
+                func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+                    if error != nil {
+                        handler(downloadLocation, task.response, error)
+                    }
+                }
+            }
+
+            let progressDelegate = ProgressDelegate(downloadHandler: handleDownload, progressEmitter: emitter)
+            session = URLSession(configuration: .default, delegate: progressDelegate, delegateQueue: nil)
+            task = session.downloadTask(with: urlRequest)
+        } else {
+            task = URLSession.shared.downloadTask(with: urlRequest, completionHandler: handleDownload)
+        }
+
+        task.resume()
+    }
+    // swiftlint:enable function_body_length
+
+    /**
+     * Get the SearchPathDirectory corresponding to the JS string
+     */
+    private func getDirectory(directory: String?) -> FileManager.SearchPathDirectory? {
+        if let directory = directory {
+            switch directory {
+            case "CACHE":
+                return .cachesDirectory
+            case "LIBRARY":
+                return .libraryDirectory
+            default:
+                return .documentDirectory
+            }
+        }
+
+        return nil
+    }
+}
+`;
+
+const patchedFilesystemPlugin = `import Foundation
+import Capacitor
+import IONFilesystemLib
+
+typealias FileService = any IONFILEDirectoryManager & IONFILEFileManager
+
+/**
+ * Please read the Capacitor iOS Plugin Development Guide
+ * here: https://capacitorjs.com/docs/plugins/ios
+ */
+@objc(FilesystemPlugin)
+public class FilesystemPlugin: CAPPlugin, CAPBridgedPlugin {
+    public let identifier = "FilesystemPlugin"
+    public let jsName = "Filesystem"
+    public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "readFile", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "readFileInChunks", returnType: CAPPluginReturnCallback),
+        CAPPluginMethod(name: "writeFile", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "appendFile", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "deleteFile", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "mkdir", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "rmdir", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "readdir", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getUri", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "stat", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "rename", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "copy", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "checkPermissions", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "requestPermissions", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "downloadFile", returnType: CAPPluginReturnPromise)
+    ]
+
+    private let legacyImplementation = LegacyFilesystemImplementation()
+
+    private var fileService: FileService?
+
+    override public func load() {
+        self.fileService = IONFILEManager()
+    }
+
+    func getService() -> Result<FileService, FilesystemError> {
+        if fileService == nil { load() }
+        return fileService.map(Result.success) ?? .failure(.bridgeNotInitialised)
+    }
+
+    @objc override public func checkPermissions(_ call: CAPPluginCall) {
+        call.handlePermissionSuccess()
+    }
+
+    @objc override public func requestPermissions(_ call: CAPPluginCall) {
+        call.handlePermissionSuccess()
+    }
 }
 
-if (!source.includes('public class PreferencesPlugin')) {
-	throw new Error(`Unexpected PreferencesPlugin.swift layout at ${preferencesPlugin}`);
+// MARK: - Public API Methods
+private extension FilesystemPlugin {
+    /**
+     * Read a file from the filesystem.
+     */
+    @objc func readFile(_ call: CAPPluginCall) {
+        let encoding = call.getEncoding(Constants.MethodParameter.encoding)
+        let offset = call.intValue(Constants.MethodParameter.offset, 0)
+        let length = call.intValue(Constants.MethodParameter.length, -1)
+        performSinglePathOperation(call) {
+            .readFile(url: $0, encoding: encoding, offset: offset, length: length)
+        }
+    }
+
+    @objc func readFileInChunks(_ call: CAPPluginCall) {
+        let encoding = call.getEncoding(Constants.MethodParameter.encoding)
+        guard let chunkSize = call.intValue(Constants.MethodParameter.chunkSize) else {
+            return call.handleError(.invalidInput(method: call.getIONFileMethod()))
+        }
+        let offset = call.intValue(Constants.MethodParameter.offset, 0)
+        let length = call.intValue(Constants.MethodParameter.length, -1)
+        performSinglePathOperation(call) {
+            .readFileInChunks(url: $0, encoding: encoding, chunkSize: chunkSize, offset: offset, length: length)
+        }
+    }
+
+    /**
+     * Write a file to the filesystem.
+     */
+    @objc func writeFile(_ call: CAPPluginCall) {
+        guard let encodingMapper = call.getEncodingMapper() else {
+            return call.handleError(.invalidInput(method: call.getIONFileMethod()))
+        }
+        let recursive = call.boolValue(Constants.MethodParameter.recursive, false)
+
+        performSinglePathOperation(call) {
+            .write(url: $0, encodingMapper: encodingMapper, recursive: recursive)
+        }
+    }
+
+    /**
+     * Append to a file.
+     */
+    @objc func appendFile(_ call: CAPPluginCall) {
+        guard let encodingMapper = call.getEncodingMapper() else {
+            return call.handleError(.invalidInput(method: call.getIONFileMethod()))
+        }
+        let recursive = call.boolValue(Constants.MethodParameter.recursive, false)
+
+        performSinglePathOperation(call) {
+            .append(url: $0, encodingMapper: encodingMapper, recursive: recursive)
+        }
+    }
+
+    /**
+     * Delete a file.
+     */
+    @objc func deleteFile(_ call: CAPPluginCall) {
+        performSinglePathOperation(call) {
+            .delete(url: $0)
+        }
+    }
+
+    /**
+     * Make a new directory, optionally creating parent folders first.
+     */
+    @objc func mkdir(_ call: CAPPluginCall) {
+        let recursive = call.boolValue(Constants.MethodParameter.recursive, false)
+
+        performSinglePathOperation(call) {
+            .mkdir(url: $0, recursive: recursive)
+        }
+    }
+
+    /**
+     * Remove a directory.
+     */
+    @objc func rmdir(_ call: CAPPluginCall) {
+        let recursive = call.boolValue(Constants.MethodParameter.recursive, false)
+
+        performSinglePathOperation(call) {
+            .rmdir(url: $0, recursive: recursive)
+        }
+    }
+
+    /**
+     * Read the contents of a directory.
+     */
+    @objc func readdir(_ call: CAPPluginCall) {
+        performSinglePathOperation(call) {
+            .readdir(url: $0)
+        }
+    }
+
+    @objc func stat(_ call: CAPPluginCall) {
+        performSinglePathOperation(call) {
+            .stat(url: $0)
+        }
+    }
+
+    @objc func getUri(_ call: CAPPluginCall) {
+        performSinglePathOperation(call) {
+            .getUri(url: $0)
+        }
+    }
+
+    /**
+     * Rename a file or directory.
+     */
+    @objc func rename(_ call: CAPPluginCall) {
+        performDualPathOperation(call) {
+            .rename(source: $0, destination: $1)
+        }
+    }
+
+    /**
+     * Copy a file or directory.
+     */
+    @objc func copy(_ call: CAPPluginCall) {
+        performDualPathOperation(call) {
+            .copy(source: $0, destination: $1)
+        }
+    }
+
+    /**
+     * [DEPRECATED] Download a file
+     */
+    @available(*, deprecated, message: "Use @capacitor/file-transfer plugin instead.")
+    @objc func downloadFile(_ call: CAPPluginCall) {
+        guard let url = call.stringValue("url") else { return call.rejectCall("Must provide a URL") }
+        let progressEmitter: LegacyFilesystemImplementation.ProgressEmitter = { bytes, contentLength in
+            self.notifyListeners("progress", data: [
+                "url": url,
+                "bytes": bytes,
+                "contentLength": contentLength
+            ])
+        }
+
+        do {
+            try legacyImplementation.downloadFile(call: call, emitter: progressEmitter, config: bridge?.config)
+        } catch let error {
+            call.rejectCall(error.localizedDescription)
+        }
+    }
 }
 
-writeFileSync(preferencesPlugin, patched);
-console.log('Patched @capacitor/preferences iOS source for SwiftPM compatibility');
+// MARK: - Operation Execution
+private extension FilesystemPlugin {
+    func performSinglePathOperation(_ call: CAPPluginCall, operationBuilder: (URL) -> FilesystemOperation) {
+        executeOperation(call) { service in
+            FilesystemLocationResolver(service: service)
+                .resolveSinglePath(from: call)
+                .map { operationBuilder($0) }
+        }
+    }
+
+    func performDualPathOperation(_ call: CAPPluginCall, operationBuilder: (URL, URL) -> FilesystemOperation) {
+        executeOperation(call) { service in
+            FilesystemLocationResolver(service: service)
+                .resolveDualPaths(from: call)
+                .map { operationBuilder($0.source, $0.destination) }
+        }
+    }
+
+    func executeOperation(_ call: CAPPluginCall, operationProvider: (FileService) -> Result<FilesystemOperation, FilesystemError>) {
+        switch getService() {
+        case .success(let service):
+            switch operationProvider(service) {
+            case .success(let operation):
+                let executor = FilesystemOperationExecutor(service: service)
+                executor.execute(operation, call)
+            case .failure(let error):
+                call.handleError(error)
+            }
+        case .failure(let error):
+            call.handleError(error)
+        }
+    }
+}
+`;
+
+patchFile(
+	join(filesystemSources, 'CAPPluginCall+Accelerators.swift'),
+	patchedFilesystemAccelerators,
+	'extension CAPPluginCall',
+	'@capacitor/filesystem CAPPluginCall accelerators'
+);
+patchFile(
+	join(filesystemSources, 'FilesystemLocationResolver.swift'),
+	patchedFilesystemLocationResolver,
+	'struct FilesystemLocationResolver',
+	'@capacitor/filesystem location resolver'
+);
+patchFile(
+	join(filesystemSources, 'LegacyFilesystemImplementation.swift'),
+	patchedLegacyFilesystem,
+	'public class LegacyFilesystemImplementation',
+	'@capacitor/filesystem legacy implementation'
+);
+patchFile(
+	join(filesystemSources, 'FilesystemPlugin.swift'),
+	patchedFilesystemPlugin,
+	'public class FilesystemPlugin',
+	'@capacitor/filesystem plugin'
+);
