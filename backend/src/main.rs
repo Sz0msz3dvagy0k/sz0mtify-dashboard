@@ -250,11 +250,27 @@ fn frontend_allowed_origins() -> Vec<HeaderValue> {
         "ionic://localhost",
     ];
 
-    env::var("FRONTEND_ALLOWED_ORIGINS")
-        .unwrap_or_default()
-        .split(',')
+    let configured = [
+        env::var("FRONTEND_ALLOWED_ORIGINS").unwrap_or_default(),
+        env::var("FRONTEND_API_BASE_URL").unwrap_or_default(),
+        env::var("FRONTEND_ORIGIN").unwrap_or_default(),
+        env::var("PUBLIC_FRONTEND_URL").unwrap_or_default(),
+    ];
+
+    let mut origins = Vec::new();
+    for origin in configured
+        .iter()
+        .flat_map(|value| value.split(','))
         .chain(defaults)
         .filter_map(normalize_cors_origin)
+    {
+        if !origins.contains(&origin) {
+            origins.push(origin);
+        }
+    }
+
+    origins
+        .into_iter()
         .filter_map(|origin| origin.parse().ok())
         .collect()
 }

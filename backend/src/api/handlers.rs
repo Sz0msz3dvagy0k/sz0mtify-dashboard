@@ -977,7 +977,10 @@ async fn fetch_track_lyrics(
 
     match fetch_lrclib_lyrics(&client, &metadata).await {
         Ok(lyrics) => Ok(lyrics),
-        Err(error) => Err(TrackLyricsError::Upstream(error)),
+        Err(error) => {
+            warn!(track_id = metadata.track_id, error = %error, "LRCLIB lyrics lookup failed");
+            Ok(None)
+        }
     }
 }
 
