@@ -181,6 +181,10 @@ async fn run() -> anyhow::Result<()> {
             get(api::handlers::stream_track),
         )
         .route(
+            "/api/tracks/:track_id/lyrics",
+            get(api::handlers::track_lyrics),
+        )
+        .route(
             "/api/tracks/:track_id/now-playing",
             post(api::handlers::track_now_playing),
         )

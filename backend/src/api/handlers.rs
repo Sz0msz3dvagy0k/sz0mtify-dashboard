@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use axum::{
     body::{Body, Bytes},
@@ -13,7 +13,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tracing::{error, info, warn};
 
@@ -566,6 +566,27 @@ pub async fn track_scrobble(
     }
 }
 
+pub async fn track_lyrics(
+    State(state): State<Arc<AppState>>,
+    Path(track_id): Path<i64>,
+) -> impl IntoResponse {
+    if track_id <= 0 {
+        return (StatusCode::BAD_REQUEST, err("invalid_track_id")).into_response();
+    }
+
+    match fetch_track_lyrics(&state.pool, track_id).await {
+        Ok(Some(lyrics)) => ok(json!(lyrics)).into_response(),
+        Ok(None) => (StatusCode::NOT_FOUND, err("lyrics_not_found")).into_response(),
+        Err(TrackLyricsError::NotFound) => {
+            (StatusCode::NOT_FOUND, err("track_not_found")).into_response()
+        }
+        Err(TrackLyricsError::Upstream(error)) => {
+            warn!(track_id, error = %error, "failed to fetch track lyrics");
+            (StatusCode::BAD_GATEWAY, err("failed_to_fetch_lyrics")).into_response()
+        }
+    }
+}
+
 pub async fn cover(
     State(state): State<Arc<AppState>>,
     Path(cover_art_id): Path<String>,
@@ -723,6 +744,15 @@ async fn subsonic_json(
     endpoint: &str,
     params: &[(&str, String)],
 ) -> anyhow::Result<Value> {
+    subsonic_json_with_client(&reqwest::Client::new(), pool, endpoint, params).await
+}
+
+async fn subsonic_json_with_client(
+    client: &reqwest::Client,
+    pool: &sqlx::SqlitePool,
+    endpoint: &str,
+    params: &[(&str, String)],
+) -> anyhow::Result<Value> {
     let cfg = SubsonicConfig::load(pool).await?;
     let url = format!("{}/rest/{endpoint}", cfg.base_url.trim_end_matches('/'));
     let mut query = crate::services::sync::subsonic_auth_query(&cfg);
@@ -732,7 +762,7 @@ async fn subsonic_json(
             .map(|(key, value)| ((*key).to_string(), value.clone())),
     );
 
-    let response = reqwest::Client::new().get(url).query(&query).send().await?;
+    let response = client.get(url).query(&query).send().await?;
     let status = response.status();
     let body = response.text().await?;
     if !status.is_success() {
@@ -885,6 +915,436 @@ async fn track_subsonic_id(
     subsonic_id
         .and_then(|id| non_empty_owned(&id))
         .ok_or(TrackStreamError::NotStreamable)
+}
+
+#[derive(Debug)]
+enum TrackLyricsError {
+    NotFound,
+    Upstream(anyhow::Error),
+}
+
+impl From<anyhow::Error> for TrackLyricsError {
+    fn from(error: anyhow::Error) -> Self {
+        Self::Upstream(error)
+    }
+}
+
+#[derive(Debug)]
+struct TrackLyricsMetadata {
+    track_id: i64,
+    subsonic_id: Option<String>,
+    title: String,
+    artist: Option<String>,
+    album: Option<String>,
+    duration_seconds: Option<i64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+struct LyricsLine {
+    start_ms: Option<i64>,
+    text: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+struct TrackLyrics {
+    track_id: i64,
+    source: String,
+    synced: bool,
+    instrumental: bool,
+    title: String,
+    artist: Option<String>,
+    lines: Vec<LyricsLine>,
+    text: Option<String>,
+}
+
+async fn fetch_track_lyrics(
+    pool: &sqlx::SqlitePool,
+    track_id: i64,
+) -> Result<Option<TrackLyrics>, TrackLyricsError> {
+    let metadata = track_lyrics_metadata(pool, track_id).await?;
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .user_agent(format!(
+            "music-dashboard-backend/{}",
+            env!("CARGO_PKG_VERSION")
+        ))
+        .build()
+        .map_err(|error| TrackLyricsError::Upstream(error.into()))?;
+
+    if let Some(lyrics) = fetch_subsonic_track_lyrics(&client, pool, &metadata).await {
+        return Ok(Some(lyrics));
+    }
+
+    match fetch_lrclib_lyrics(&client, &metadata).await {
+        Ok(lyrics) => Ok(lyrics),
+        Err(error) => Err(TrackLyricsError::Upstream(error)),
+    }
+}
+
+async fn track_lyrics_metadata(
+    pool: &sqlx::SqlitePool,
+    track_id: i64,
+) -> Result<TrackLyricsMetadata, TrackLyricsError> {
+    let track = sqlx::query_as::<
+        _,
+        (
+            Option<String>,
+            String,
+            Option<String>,
+            Option<String>,
+            Option<i64>,
+        ),
+    >(
+        "SELECT t.subsonic_id,
+                t.title,
+                COALESCE(NULLIF(t.raw_artist, ''), ar.name),
+                al.title,
+                t.duration_seconds
+         FROM tracks t
+         LEFT JOIN artists ar ON ar.id = t.artist_id
+         LEFT JOIN albums al ON al.id = t.album_id
+         WHERE t.id = ?
+         LIMIT 1",
+    )
+    .bind(track_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|error| TrackLyricsError::Upstream(error.into()))?;
+
+    let Some((subsonic_id, title, artist, album, duration_seconds)) = track else {
+        return Err(TrackLyricsError::NotFound);
+    };
+
+    Ok(TrackLyricsMetadata {
+        track_id,
+        subsonic_id: subsonic_id.and_then(|id| non_empty_owned(&id)),
+        title,
+        artist: artist.and_then(|artist| non_empty_owned(&artist)),
+        album: album.and_then(|album| non_empty_owned(&album)),
+        duration_seconds,
+    })
+}
+
+async fn fetch_subsonic_track_lyrics(
+    client: &reqwest::Client,
+    pool: &sqlx::SqlitePool,
+    metadata: &TrackLyricsMetadata,
+) -> Option<TrackLyrics> {
+    if let Some(subsonic_id) = metadata.subsonic_id.as_deref() {
+        match subsonic_json_with_client(
+            client,
+            pool,
+            "getLyricsBySongId",
+            &[("id", subsonic_id.to_string())],
+        )
+        .await
+        {
+            Ok(response) => {
+                if let Some(lyrics) = open_subsonic_lyrics_from_value(metadata, &response) {
+                    return Some(lyrics);
+                }
+            }
+            Err(error) => {
+                info!(track_id = metadata.track_id, error = %error, "OpenSubsonic lyrics lookup did not return lyrics");
+            }
+        }
+    }
+
+    let Some(artist) = metadata.artist.as_deref() else {
+        return None;
+    };
+
+    match subsonic_json_with_client(
+        client,
+        pool,
+        "getLyrics",
+        &[
+            ("artist", artist.to_string()),
+            ("title", metadata.title.clone()),
+        ],
+    )
+    .await
+    {
+        Ok(response) => subsonic_lyrics_from_value(metadata, &response),
+        Err(error) => {
+            info!(track_id = metadata.track_id, error = %error, "Subsonic lyrics lookup did not return lyrics");
+            None
+        }
+    }
+}
+
+fn open_subsonic_lyrics_from_value(
+    metadata: &TrackLyricsMetadata,
+    response: &Value,
+) -> Option<TrackLyrics> {
+    let lyrics_list = &response["subsonic-response"]["lyricsList"];
+    let structured = value_list(lyrics_list.get("structuredLyrics"));
+    let selected = structured
+        .iter()
+        .find(|entry| {
+            entry["synced"].as_bool().unwrap_or(false)
+                && matches!(entry["kind"].as_str(), Some("main") | None)
+        })
+        .or_else(|| {
+            structured
+                .iter()
+                .find(|entry| matches!(entry["kind"].as_str(), Some("main") | None))
+        })?;
+    let offset = selected["offset"].as_i64().unwrap_or(0);
+    let lines = value_list(selected.get("line"))
+        .into_iter()
+        .filter_map(|line| {
+            let text = line["value"].as_str()?.trim().to_string();
+            let start_ms = line["start"].as_i64().map(|start| (start + offset).max(0));
+            Some(LyricsLine { start_ms, text })
+        })
+        .collect::<Vec<_>>();
+    lyrics_from_lines(metadata, "subsonic", lines, false)
+}
+
+fn subsonic_lyrics_from_value(
+    metadata: &TrackLyricsMetadata,
+    response: &Value,
+) -> Option<TrackLyrics> {
+    let lyrics = &response["subsonic-response"]["lyrics"];
+    let text = lyrics
+        .as_str()
+        .or_else(|| lyrics["value"].as_str())
+        .or_else(|| lyrics["text"].as_str())
+        .or_else(|| lyrics["_value"].as_str())
+        .or_else(|| lyrics["$text"].as_str())?;
+    lyrics_from_text(metadata, "subsonic", text, false)
+}
+
+async fn fetch_lrclib_lyrics(
+    client: &reqwest::Client,
+    metadata: &TrackLyricsMetadata,
+) -> anyhow::Result<Option<TrackLyrics>> {
+    let Some(artist) = metadata.artist.as_deref() else {
+        return Ok(None);
+    };
+    let mut query = vec![
+        ("track_name", metadata.title.clone()),
+        ("artist_name", artist.to_string()),
+    ];
+    if let Some(album) = metadata.album.as_deref() {
+        query.push(("album_name", album.to_string()));
+    }
+    if let Some(duration) = metadata.duration_seconds.filter(|duration| *duration > 0) {
+        query.push(("duration", duration.to_string()));
+    }
+
+    let response = client
+        .get("https://lrclib.net/api/get")
+        .query(&query)
+        .send()
+        .await?;
+    let status = response.status();
+    if status == reqwest::StatusCode::NOT_FOUND {
+        return Ok(None);
+    }
+    if !status.is_success() {
+        anyhow::bail!("LRCLIB returned HTTP {status}");
+    }
+
+    let value = response.json::<Value>().await?;
+    let instrumental = value["instrumental"].as_bool().unwrap_or(false);
+    if instrumental {
+        return Ok(Some(TrackLyrics {
+            track_id: metadata.track_id,
+            source: "lrclib".to_string(),
+            synced: false,
+            instrumental: true,
+            title: metadata.title.clone(),
+            artist: metadata.artist.clone(),
+            lines: Vec::new(),
+            text: None,
+        }));
+    }
+
+    let text = value["syncedLyrics"]
+        .as_str()
+        .and_then(non_empty_owned)
+        .or_else(|| value["plainLyrics"].as_str().and_then(non_empty_owned));
+    Ok(text.and_then(|text| lyrics_from_text(metadata, "lrclib", &text, false)))
+}
+
+fn lyrics_from_text(
+    metadata: &TrackLyricsMetadata,
+    source: &str,
+    text: &str,
+    instrumental: bool,
+) -> Option<TrackLyrics> {
+    let instrumental = instrumental || text.lines().any(is_instrumental_lrc_tag);
+    if instrumental {
+        return Some(TrackLyrics {
+            track_id: metadata.track_id,
+            source: source.to_string(),
+            synced: false,
+            instrumental: true,
+            title: metadata.title.clone(),
+            artist: metadata.artist.clone(),
+            lines: Vec::new(),
+            text: None,
+        });
+    }
+
+    let mut lines = parse_lrc_lines(text);
+    let synced = lines.iter().any(|line| line.start_ms.is_some());
+    if synced {
+        lines.sort_by_key(|line| line.start_ms.unwrap_or(i64::MAX));
+    }
+    lyrics_from_lines(metadata, source, lines, false)
+}
+
+fn lyrics_from_lines(
+    metadata: &TrackLyricsMetadata,
+    source: &str,
+    lines: Vec<LyricsLine>,
+    instrumental: bool,
+) -> Option<TrackLyrics> {
+    let lines = lines
+        .into_iter()
+        .filter(|line| !line.text.trim().is_empty())
+        .collect::<Vec<_>>();
+    if lines.is_empty() && !instrumental {
+        return None;
+    }
+
+    let synced = lines.iter().any(|line| line.start_ms.is_some());
+    let text = if lines.is_empty() {
+        None
+    } else {
+        Some(
+            lines
+                .iter()
+                .map(|line| line.text.as_str())
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )
+    };
+
+    Some(TrackLyrics {
+        track_id: metadata.track_id,
+        source: source.to_string(),
+        synced,
+        instrumental,
+        title: metadata.title.clone(),
+        artist: metadata.artist.clone(),
+        lines,
+        text,
+    })
+}
+
+fn parse_lrc_lines(text: &str) -> Vec<LyricsLine> {
+    let mut lines = Vec::new();
+    for raw_line in text.lines() {
+        let trimmed = raw_line.trim();
+        if trimmed.is_empty() || is_lrc_metadata_line(trimmed) {
+            continue;
+        }
+
+        let (timestamps, lyric_text) = split_lrc_timestamps(trimmed);
+        if timestamps.is_empty() {
+            lines.push(LyricsLine {
+                start_ms: None,
+                text: trimmed.to_string(),
+            });
+            continue;
+        }
+
+        let lyric_text = lyric_text.trim();
+        if lyric_text.is_empty() {
+            continue;
+        }
+        for start_ms in timestamps {
+            lines.push(LyricsLine {
+                start_ms: Some(start_ms),
+                text: lyric_text.to_string(),
+            });
+        }
+    }
+    lines
+}
+
+fn split_lrc_timestamps(line: &str) -> (Vec<i64>, &str) {
+    let mut rest = line;
+    let mut timestamps = Vec::new();
+    while let Some(stripped) = rest.strip_prefix('[') {
+        let Some(end) = stripped.find(']') else {
+            break;
+        };
+        let tag = &stripped[..end];
+        let Some(start_ms) = parse_lrc_timestamp(tag) else {
+            break;
+        };
+        timestamps.push(start_ms);
+        rest = &stripped[end + 1..];
+    }
+    (timestamps, rest)
+}
+
+fn parse_lrc_timestamp(tag: &str) -> Option<i64> {
+    let parts = tag.split(':').collect::<Vec<_>>();
+    if !(2..=3).contains(&parts.len()) {
+        return None;
+    }
+
+    let seconds_part = parts.last()?.trim();
+    let (seconds, millis) = match seconds_part.split_once('.') {
+        Some((seconds, fraction)) => (seconds, fraction_to_millis(fraction)?),
+        None => (seconds_part, 0),
+    };
+    let seconds = seconds.parse::<i64>().ok()?;
+    if !(0..60).contains(&seconds) {
+        return None;
+    }
+
+    let minutes = parts[parts.len() - 2].trim().parse::<i64>().ok()?;
+    let hours = if parts.len() == 3 {
+        parts[0].trim().parse::<i64>().ok()?
+    } else {
+        0
+    };
+    if minutes < 0 || hours < 0 {
+        return None;
+    }
+
+    Some(((hours * 60 + minutes) * 60 + seconds) * 1000 + millis)
+}
+
+fn fraction_to_millis(fraction: &str) -> Option<i64> {
+    if fraction.is_empty() || !fraction.chars().all(|character| character.is_ascii_digit()) {
+        return None;
+    }
+    let mut padded = fraction.chars().take(3).collect::<String>();
+    while padded.len() < 3 {
+        padded.push('0');
+    }
+    padded.parse::<i64>().ok()
+}
+
+fn is_lrc_metadata_line(line: &str) -> bool {
+    let Some(inner) = line
+        .strip_prefix('[')
+        .and_then(|value| value.strip_suffix(']'))
+    else {
+        return false;
+    };
+    if parse_lrc_timestamp(inner).is_some() {
+        return false;
+    }
+    let Some((key, _)) = inner.split_once(':') else {
+        return false;
+    };
+    matches!(
+        key.trim().to_ascii_lowercase().as_str(),
+        "al" | "ar" | "au" | "by" | "length" | "offset" | "re" | "ti" | "ve"
+    )
+}
+
+fn is_instrumental_lrc_tag(line: &str) -> bool {
+    line.trim().eq_ignore_ascii_case("[au: instrumental]")
 }
 
 async fn fetch_subsonic_track_stream(
@@ -1208,6 +1668,115 @@ mod tests {
             .unwrap();
         sqlx::migrate!("./migrations").run(&pool).await.unwrap();
         pool
+    }
+
+    fn lyrics_metadata() -> TrackLyricsMetadata {
+        TrackLyricsMetadata {
+            track_id: 7,
+            subsonic_id: Some("subsonic-track".to_string()),
+            title: "Song".to_string(),
+            artist: Some("Artist".to_string()),
+            album: Some("Album".to_string()),
+            duration_seconds: Some(123),
+        }
+    }
+
+    #[test]
+    fn lrc_parser_extracts_synced_lines_and_skips_metadata() {
+        let lyrics = lyrics_from_text(
+            &lyrics_metadata(),
+            "lrclib",
+            "[ar:Artist]\n[00:01.50]First line\n[00:03.000][00:04.25]Repeated\nPlain line",
+            false,
+        )
+        .unwrap();
+
+        assert!(lyrics.synced);
+        assert_eq!(
+            lyrics.lines,
+            vec![
+                LyricsLine {
+                    start_ms: Some(1500),
+                    text: "First line".to_string()
+                },
+                LyricsLine {
+                    start_ms: Some(3000),
+                    text: "Repeated".to_string()
+                },
+                LyricsLine {
+                    start_ms: Some(4250),
+                    text: "Repeated".to_string()
+                },
+                LyricsLine {
+                    start_ms: None,
+                    text: "Plain line".to_string()
+                }
+            ]
+        );
+    }
+
+    #[test]
+    fn open_subsonic_lyrics_prefers_synced_main_entry() {
+        let response = json!({
+            "subsonic-response": {
+                "lyricsList": {
+                    "structuredLyrics": [
+                        {
+                            "kind": "main",
+                            "synced": false,
+                            "line": [{"value": "Plain"}]
+                        },
+                        {
+                            "kind": "main",
+                            "offset": -250,
+                            "synced": true,
+                            "line": [
+                                {"start": 1000, "value": "Timed"},
+                                {"start": 2000, "value": "Again"}
+                            ]
+                        }
+                    ]
+                }
+            }
+        });
+
+        let lyrics = open_subsonic_lyrics_from_value(&lyrics_metadata(), &response).unwrap();
+
+        assert_eq!(lyrics.source, "subsonic");
+        assert!(lyrics.synced);
+        assert_eq!(lyrics.lines[0].start_ms, Some(750));
+        assert_eq!(lyrics.lines[0].text, "Timed");
+    }
+
+    #[test]
+    fn classic_subsonic_lyrics_extracts_plain_value() {
+        let response = json!({
+            "subsonic-response": {
+                "lyrics": {
+                    "artist": "Artist",
+                    "title": "Song",
+                    "value": "Line one\nLine two"
+                }
+            }
+        });
+
+        let lyrics = subsonic_lyrics_from_value(&lyrics_metadata(), &response).unwrap();
+
+        assert_eq!(lyrics.source, "subsonic");
+        assert!(!lyrics.synced);
+        assert_eq!(
+            lyrics.lines,
+            vec![
+                LyricsLine {
+                    start_ms: None,
+                    text: "Line one".to_string()
+                },
+                LyricsLine {
+                    start_ms: None,
+                    text: "Line two".to_string()
+                }
+            ]
+        );
     }
 
     #[tokio::test]

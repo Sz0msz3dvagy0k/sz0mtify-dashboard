@@ -15,6 +15,22 @@ export type StreamToken = {
 	expires_at: number;
 };
 
+export type LyricsLine = {
+	start_ms: number | null;
+	text: string;
+};
+
+export type TrackLyrics = {
+	track_id: number;
+	source: 'subsonic' | 'lrclib' | string;
+	synced: boolean;
+	instrumental: boolean;
+	title: string;
+	artist: string | null;
+	lines: LyricsLine[];
+	text: string | null;
+};
+
 export type ActiveSession = {
 	session_id: string;
 	username: string;

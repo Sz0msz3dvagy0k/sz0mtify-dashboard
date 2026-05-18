@@ -32,6 +32,7 @@ import type {
 	StreamToken,
 	StorageStats,
 	SyncStatus,
+	TrackLyrics,
 	TrackTuple
 } from './types';
 
@@ -102,6 +103,7 @@ export const api = {
 	album: (id: number) => offlineFallback(() => request<AlbumDetail>(`/api/library/albums/${id}`), () => offlineAlbum(id)),
 	nowPlaying: (id: number) => request<unknown>(`/api/tracks/${id}/now-playing`, { method: 'POST' }),
 	scrobble: (id: number) => request<unknown>(`/api/tracks/${id}/scrobble`, { method: 'POST' }),
+	trackLyrics: (id: number) => request<TrackLyrics>(`/api/tracks/${id}/lyrics`),
 	artists: () => offlineFallback(() => request<ArtistTuple[]>('/api/library/artists'), offlineArtists),
 	artist: (id: number) => request<ArtistDetail>(`/api/library/artists/${id}`),
 	genres: () => request<GenreTuple[]>('/api/library/genres'),

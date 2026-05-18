@@ -10,10 +10,11 @@
 		Play,
 		Volume2
 	} from 'lucide-svelte';
-	import { api } from '$lib/api';
+	import { ApiError, api } from '$lib/api';
 	import ImageWithFallback from './ImageWithFallback.svelte';
 	import { loadCachedImage } from '$lib/imageCache';
 	import { formatDuration } from '$lib/format';
+	import type { TrackLyrics } from '$lib/types';
 	import {
 		closeQueue,
 		playIndex,
@@ -58,11 +59,18 @@
 	let displayedTrackId: number | null = null;
 	let displayedCurrentTime = 0;
 	let displayedDuration = 0;
+	let lyricsOpen = false;
+	let lyricsLoading = false;
+	let lyrics: TrackLyrics | null = null;
+	let lyricsError = '';
+	let lyricsTrackId: number | null = null;
+	let lyricsRequestId = 0;
 	$: currentTrack = $player.queue[$player.currentIndex] ?? null;
 	$: previousTrack = $player.currentIndex > 0 ? $player.queue[$player.currentIndex - 1] : null;
 	$: nextTrack = $player.currentIndex < $player.queue.length - 1 ? $player.queue[$player.currentIndex + 1] : null;
 	$: progressDuration = displayedDuration || $player.duration || currentTrack?.duration || 0;
 	$: progress = progressDuration > 0 ? (Math.min(displayedCurrentTime, progressDuration) / progressDuration) * 100 : 0;
+	$: activeLyricIndex = lyricLineIndex(lyrics, displayedCurrentTime);
 	$: verticalDragActive = playerDragMode === 'opening' || playerDragMode === 'closing';
 	$: horizontalDragActive = playerDragMode === 'next' || playerDragMode === 'previous';
 	$: visualExpanded = expanded || verticalDragActive;
@@ -86,6 +94,15 @@
 	$: if (currentTrack?.id !== displayedTrackId) {
 		displayedTrackId = currentTrack?.id ?? null;
 		syncDisplayedTime();
+	}
+
+	$: if (currentTrack?.id !== lyricsTrackId) {
+		lyricsTrackId = currentTrack?.id ?? null;
+		lyrics = null;
+		lyricsError = '';
+		lyricsLoading = false;
+		const requestId = ++lyricsRequestId;
+		if (lyricsOpen && currentTrack) void loadLyrics(currentTrack.id, requestId);
 	}
 
 	$: if ($player.isPlaying) {
@@ -529,6 +546,56 @@
 		closeQueue();
 	}
 
+	function handleQueueToggle() {
+		lyricsOpen = false;
+		toggleQueue();
+	}
+
+	function toggleLyricsPanel() {
+		lyricsOpen = !lyricsOpen;
+		closeQueue();
+		if (lyricsOpen && currentTrack && !lyrics && !lyricsLoading) {
+			void loadLyrics(currentTrack.id, ++lyricsRequestId);
+		}
+	}
+
+	async function loadLyrics(trackId: number, requestId: number) {
+		lyricsLoading = true;
+		lyricsError = '';
+		try {
+			const result = await api.trackLyrics(trackId);
+			if (requestId !== lyricsRequestId || currentTrack?.id !== trackId) return;
+			lyrics = result;
+		} catch (error) {
+			if (requestId !== lyricsRequestId || currentTrack?.id !== trackId) return;
+			lyrics = null;
+			lyricsError = error instanceof ApiError && error.status === 404
+				? 'No lyrics found'
+				: 'Unable to load lyrics';
+			if (!(error instanceof ApiError && error.status === 404)) {
+				console.warn('Unable to load lyrics', error);
+			}
+		} finally {
+			if (requestId === lyricsRequestId && currentTrack?.id === trackId) {
+				lyricsLoading = false;
+			}
+		}
+	}
+
+	function lyricLineIndex(trackLyrics: TrackLyrics | null, currentTime: number) {
+		if (!trackLyrics?.synced) return -1;
+		const currentMs = currentTime * 1000;
+		let index = -1;
+		trackLyrics.lines.forEach((line, lineIndex) => {
+			if (line.start_ms !== null && line.start_ms <= currentMs) index = lineIndex;
+		});
+		return index;
+	}
+
+	function lyricsSourceLabel(source: string) {
+		return source === 'lrclib' ? 'LRCLIB' : 'Subsonic';
+	}
+
 	function logAudioEvent(eventName: string) {
 		debugPlayer(`[player] audio ${eventName}`, {
 			trackId: currentTrack?.id ?? null,
@@ -611,6 +678,7 @@
 		class:expanded={visualExpanded}
 		class:dragging={playerPointerId !== null && playerDragMode !== null}
 		class:queue-open={$player.queueOpen}
+		class:lyrics-open={lyricsOpen}
 		style={playerDragStyle}
 		on:click={toggleExpanded}
 		on:keydown={(event) => (event.key === 'Enter' || event.key === ' ') && toggleExpanded(event)}
@@ -651,6 +719,30 @@
 					<span>{currentTrack.artist} · {currentTrack.album}</span>
 				</div>
 
+				{#if lyricsOpen}
+					<div class="player-lyrics-panel" role="region" aria-label="Lyrics" on:pointerdown|stopPropagation>
+						<header>
+							<strong>Lyrics</strong>
+							{#if lyrics}
+								<small>{lyricsSourceLabel(lyrics.source)}{lyrics.synced ? ' - synced' : ''}</small>
+							{/if}
+						</header>
+						{#if lyricsLoading}
+							<div class="lyrics-status">Loading lyrics...</div>
+						{:else if lyricsError}
+							<div class="lyrics-status">{lyricsError}</div>
+						{:else if lyrics?.instrumental}
+							<div class="lyrics-status">Instrumental</div>
+						{:else if lyrics && lyrics.lines.length}
+							<div class="lyrics-lines" class:synced={lyrics.synced}>
+								{#each lyrics.lines as line, index}
+									<p class:active={index === activeLyricIndex}>{line.text}</p>
+								{/each}
+							</div>
+						{/if}
+					</div>
+				{/if}
+
 				<div class="player-expanded-controls">
 					<div class="player-center">
 						<div class="player-buttons">
@@ -671,10 +763,10 @@
 							<Volume2 size={16} />
 							<input type="range" min="0" max="1" step="0.01" value={$player.volume} on:click|stopPropagation on:input={(event) => setVolume(Number((event.target as HTMLInputElement).value))} aria-label="Volume" />
 						</div>
-						<button class="icon-button" aria-label="Lyrics" title="Lyrics coming later" disabled on:click|stopPropagation>
+						<button class="icon-button" class:active={lyricsOpen} aria-label="Lyrics" aria-pressed={lyricsOpen} on:click|stopPropagation={toggleLyricsPanel}>
 							<MessageSquareText size={18} />
 						</button>
-						<button class="icon-button" aria-label="Queue" on:click|stopPropagation={toggleQueue}>
+						<button class="icon-button" aria-label="Queue" on:click|stopPropagation={handleQueueToggle}>
 							<ListMusic size={18} />
 						</button>
 					</div>
@@ -704,7 +796,7 @@
 						<Volume2 size={16} />
 						<input type="range" min="0" max="1" step="0.01" value={$player.volume} on:click|stopPropagation on:input={(event) => setVolume(Number((event.target as HTMLInputElement).value))} aria-label="Volume" />
 					</div>
-					<button class="icon-button desktop-player-control" aria-label="Queue" on:click|stopPropagation={toggleQueue}>
+					<button class="icon-button desktop-player-control" aria-label="Queue" on:click|stopPropagation={handleQueueToggle}>
 						<ListMusic size={18} />
 					</button>
 				</div>
