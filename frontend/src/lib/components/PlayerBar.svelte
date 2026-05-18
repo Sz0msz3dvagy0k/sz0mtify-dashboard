@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
-	import { onDestroy, onMount } from 'svelte';
+	import { onDestroy, onMount, tick } from 'svelte';
 	import {
 		ChevronsLeft,
 		ChevronsRight,
@@ -65,6 +65,8 @@
 	let lyricsError = '';
 	let lyricsTrackId: number | null = null;
 	let lyricsRequestId = 0;
+	let lyricsLinesElement: HTMLDivElement | null = null;
+	let lastScrolledLyricIndex = -1;
 	$: currentTrack = $player.queue[$player.currentIndex] ?? null;
 	$: previousTrack = $player.currentIndex > 0 ? $player.queue[$player.currentIndex - 1] : null;
 	$: nextTrack = $player.currentIndex < $player.queue.length - 1 ? $player.queue[$player.currentIndex + 1] : null;
@@ -101,8 +103,14 @@
 		lyrics = null;
 		lyricsError = '';
 		lyricsLoading = false;
+		lastScrolledLyricIndex = -1;
 		const requestId = ++lyricsRequestId;
 		if (lyricsOpen && currentTrack) void loadLyrics(currentTrack.id, requestId);
+	}
+
+	$: if (lyricsOpen && lyrics?.synced && activeLyricIndex >= 0 && activeLyricIndex !== lastScrolledLyricIndex) {
+		lastScrolledLyricIndex = activeLyricIndex;
+		void scrollActiveLyricLine(activeLyricIndex);
 	}
 
 	$: if ($player.isPlaying) {
@@ -566,6 +574,7 @@
 			const result = await api.trackLyrics(trackId);
 			if (requestId !== lyricsRequestId || currentTrack?.id !== trackId) return;
 			lyrics = result;
+			lastScrolledLyricIndex = -1;
 		} catch (error) {
 			if (requestId !== lyricsRequestId || currentTrack?.id !== trackId) return;
 			lyrics = null;
@@ -594,6 +603,21 @@
 
 	function lyricsSourceLabel(source: string) {
 		return source === 'lrclib' ? 'LRCLIB' : 'Subsonic';
+	}
+
+	async function scrollActiveLyricLine(index: number) {
+		await tick();
+		if (!lyricsLinesElement) return;
+		const line = lyricsLinesElement.querySelector<HTMLElement>(`[data-lyric-index="${index}"]`);
+		if (!line) return;
+
+		const containerRect = lyricsLinesElement.getBoundingClientRect();
+		const lineRect = line.getBoundingClientRect();
+		const offset = lineRect.top - containerRect.top - lyricsLinesElement.clientHeight / 2 + lineRect.height / 2;
+		lyricsLinesElement.scrollTo({
+			top: lyricsLinesElement.scrollTop + offset,
+			behavior: 'smooth'
+		});
 	}
 
 	function logAudioEvent(eventName: string) {
@@ -734,9 +758,9 @@
 						{:else if lyrics?.instrumental}
 							<div class="lyrics-status">Instrumental</div>
 						{:else if lyrics && lyrics.lines.length}
-							<div class="lyrics-lines" class:synced={lyrics.synced}>
+							<div bind:this={lyricsLinesElement} class="lyrics-lines" class:synced={lyrics.synced}>
 								{#each lyrics.lines as line, index}
-									<p class:active={index === activeLyricIndex}>{line.text}</p>
+									<p data-lyric-index={index} class:active={index === activeLyricIndex}>{line.text}</p>
 								{/each}
 							</div>
 						{/if}

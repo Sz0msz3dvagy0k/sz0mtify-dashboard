@@ -689,22 +689,24 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 .player-lyrics-panel header small { color: #8a8a8a; font-size: 12px; }
 .lyrics-lines {
 	min-height: 0;
-	max-height: min(34vh, 360px);
+	max-height: min(28vh, 248px);
 	overflow: auto;
-	padding-right: 8px;
+	padding: 6px 10px 6px 0;
+	scroll-padding-block: 48%;
 	scrollbar-width: thin;
 }
 .lyrics-lines p {
-	margin: 0 0 11px;
+	margin: 0 0 18px;
 	color: #d4d4d4;
-	font-size: 16px;
-	line-height: 1.55;
-	transition: color .18s ease, opacity .18s ease;
+	font-size: 28px;
+	line-height: 1.28;
+	transition: color .18s ease, opacity .18s ease, transform .18s ease;
 }
 .lyrics-lines.synced p { color: #8a8a8a; }
 .lyrics-lines p.active {
 	color: #f5f5f5;
 	font-weight: 700;
+	transform: translateX(4px);
 }
 .lyrics-status {
 	display: flex;
@@ -942,7 +944,7 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 		min-height: 0;
 	}
 	.player-bar.expanded.lyrics-open .lyrics-lines {
-		max-height: none;
+		max-height: min(30vh, 260px);
 	}
 	.player-bar.expanded .player-expanded-controls {
 		position: absolute;
@@ -1195,7 +1197,12 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 		text-align: left;
 	}
 	.lyrics-lines {
-		max-height: 30vh;
+		max-height: min(26vh, 220px);
+	}
+	.lyrics-lines p {
+		margin-bottom: 16px;
+		font-size: 22px;
+		line-height: 1.3;
 	}
 	.player-bar.expanded .player-center { margin-top: auto; padding-top: 56px; padding-bottom: 8px; }
 	.player-bar.expanded .player-expanded-controls { margin-top: auto; }
