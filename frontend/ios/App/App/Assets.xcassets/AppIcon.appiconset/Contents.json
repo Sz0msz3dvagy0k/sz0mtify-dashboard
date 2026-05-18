@@ -1,14 +1,14 @@
 {
   "images" : [
     {
-      "filename" : "AppIcon-512@2x.png",
+      "filename" : "AppIcon.png",
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"
     }
   ],
   "info" : {
-    "author" : "xcode",
+    "author" : "sz0msz3d",
     "version" : 1
   }
 }
