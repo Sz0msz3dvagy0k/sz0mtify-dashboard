@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { page } from '$app/stores';
-	import { api } from '$lib/api';
+	import { api, ApiError } from '$lib/api';
 	import EmptyState from '$lib/components/EmptyState.svelte';
 	import ErrorState from '$lib/components/ErrorState.svelte';
 	import ImageWithFallback from '$lib/components/ImageWithFallback.svelte';
@@ -10,26 +10,50 @@
 	import { coverUrl, formatDuration, formatNumber } from '$lib/format';
 	import { downloadTrack, localMedia } from '$lib/localMedia';
 	import { playQueue, type QueueTrack } from '$lib/player';
-	import type { TrackDetail } from '$lib/types';
-	import { CheckCircle2, Download, Loader2, Play } from 'lucide-svelte';
+	import type { TrackDetail, TrackLyrics } from '$lib/types';
+	import { Play } from 'lucide-svelte';
 
 	let detail: TrackDetail | null = null;
+	let lyrics: TrackLyrics | null = null;
+	let lyricsLoading = false;
 	let loading = true;
 	let error = '';
 	let loadedTrackId: number | null = null;
+	let lyricsRequestId = 0;
 	let downloading = false;
 
 	async function load(trackId: number) {
 		loading = true;
 		error = '';
 		detail = null;
+		lyrics = null;
+		lyricsLoading = false;
+		lyricsRequestId += 1;
 		try {
 			detail = await api.track(trackId);
 			loadedTrackId = trackId;
+			void loadLyrics(trackId, ++lyricsRequestId);
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Unable to load track';
 		} finally {
 			loading = false;
+		}
+	}
+
+	async function loadLyrics(trackId: number, requestId: number) {
+		lyricsLoading = true;
+		try {
+			const result = await api.trackLyrics(trackId);
+			if (requestId !== lyricsRequestId) return;
+			lyrics = result;
+		} catch (error) {
+			if (requestId !== lyricsRequestId) return;
+			lyrics = null;
+			if (!(error instanceof ApiError && error.status === 404)) {
+				console.warn('Unable to load track lyrics', error);
+			}
+		} finally {
+			if (requestId === lyricsRequestId) lyricsLoading = false;
 		}
 	}
 
@@ -84,7 +108,17 @@
 	$: track = detail?.track;
 	$: downloadedTrackIds = new Set(Object.keys($localMedia.tracks).map(Number));
 	$: downloaded = track ? downloadedTrackIds.has(track[0]) : false;
-	$: queueItem = queueTrack();
+	$: queueItem = track
+		? {
+				id: track[0],
+				title: track[1],
+				artist: track[3] ?? 'Unknown artist',
+				album: track[5] ?? 'Unknown album',
+				albumId: track[4],
+				coverArtId: track[6],
+				duration: track[7]
+			}
+		: null;
 </script>
 
 {#if loading}
@@ -121,10 +155,6 @@
 			</div>
 			<div class="action-row">
 				<button class="button" on:click={play}><Play size={16} />Play Track</button>
-				<button class="button ghost" on:click={saveTrackOffline} disabled={downloaded || downloading}>
-					{#if downloading}<Loader2 size={16} />{:else if downloaded}<CheckCircle2 size={16} />{:else}<Download size={16} />{/if}
-					{downloaded ? 'Downloaded' : 'Download Lossless'}
-				</button>
 				{#if queueItem}
 					<TrackActionsMenu
 						track={queueItem}
@@ -137,4 +167,29 @@
 			</div>
 		</div>
 	</section>
+	{#if lyricsLoading || lyrics}
+		<section class="track-lyrics-section">
+			<header>
+				<p class="eyebrow">Lyrics</p>
+				{#if lyrics}<span>{lyrics.source}{lyrics.synced ? ' · synced' : ''}</span>{/if}
+			</header>
+			{#if lyricsLoading}
+				<div class="lyrics-status">Loading lyrics...</div>
+			{:else if lyrics?.instrumental}
+				<div class="lyrics-status">Instrumental</div>
+			{:else if lyrics?.lines.length}
+				<div class="track-lyrics-lines">
+					{#each lyrics.lines as line}
+						<p>{line.text}</p>
+					{/each}
+				</div>
+			{:else if lyrics?.text}
+				<div class="track-lyrics-lines">
+					{#each lyrics.text.split('\n').filter(Boolean) as line}
+						<p>{line}</p>
+					{/each}
+				</div>
+			{/if}
+		</section>
+	{/if}
 {/if}
