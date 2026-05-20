@@ -39,17 +39,21 @@
 	$: artistMap = new Map(artists.map(([id, name]) => [id, name]));
 	$: albumStorageMap = new Map((storage?.size_by_album ?? []).filter((row) => row[0] !== null).map((row) => [row[0] as number, { bytes: row[3], tracks: row[4] }]));
 	$: filtered = albums
-		.filter((album) => `${album[1]} ${artistMap.get(album[2] ?? -1) ?? ''} ${album[4] ?? ''}`.toLowerCase().includes(filter.toLowerCase()))
+		.filter((album) => `${album[1]} ${albumArtistName(album)} ${album[4] ?? ''}`.toLowerCase().includes(filter.toLowerCase()))
 		.sort((a, b) => {
 			switch (sort) {
 				case 'title-desc':
 					return b[1].localeCompare(a[1]);
 				case 'artist':
-					return (artistMap.get(a[2] ?? -1) ?? '').localeCompare(artistMap.get(b[2] ?? -1) ?? '') || a[1].localeCompare(b[1]);
+					return albumArtistName(a).localeCompare(albumArtistName(b)) || a[1].localeCompare(b[1]);
 				case 'year-new':
 					return (b[3] ?? 0) - (a[3] ?? 0) || a[1].localeCompare(b[1]);
 				case 'year-old':
 					return (a[3] ?? 9999) - (b[3] ?? 9999) || a[1].localeCompare(b[1]);
+				case 'date-added-new':
+					return compareAddedNewest(a, b);
+				case 'date-added-old':
+					return compareAddedOldest(a, b);
 				case 'genre':
 					return (a[4] ?? '').localeCompare(b[4] ?? '') || a[1].localeCompare(b[1]);
 				case 'size':
@@ -77,6 +81,30 @@
 	$: if (page > Math.max(1, Math.ceil(filtered.length / itemsPerPage))) page = 1;
 
 	onMount(load);
+
+	function albumArtistName(album: AlbumTuple): string {
+		return album[6] ?? artistMap.get(album[2] ?? -1) ?? 'Unknown artist';
+	}
+
+	function albumAddedTime(album: AlbumTuple): number {
+		const value = album[7];
+		if (!value) return 0;
+		const time = Date.parse(value);
+		return Number.isNaN(time) ? 0 : time;
+	}
+
+	function compareAddedNewest(a: AlbumTuple, b: AlbumTuple): number {
+		return albumAddedTime(b) - albumAddedTime(a) || b[0] - a[0] || a[1].localeCompare(b[1]);
+	}
+
+	function compareAddedOldest(a: AlbumTuple, b: AlbumTuple): number {
+		const aTime = albumAddedTime(a);
+		const bTime = albumAddedTime(b);
+		if (!aTime && !bTime) return a[1].localeCompare(b[1]);
+		if (!aTime) return 1;
+		if (!bTime) return -1;
+		return aTime - bTime || a[0] - b[0] || a[1].localeCompare(b[1]);
+	}
 </script>
 
 {#if loading}
@@ -98,6 +126,8 @@
 			<option value="artist">Artist</option>
 			<option value="year-new">Newest Year</option>
 			<option value="year-old">Oldest Year</option>
+			<option value="date-added-new">Recently Added</option>
+			<option value="date-added-old">Oldest Added</option>
 			<option value="genre">Genre</option>
 			<option value="size">Largest Size</option>
 			<option value="tracks">Most Tracks</option>
@@ -121,7 +151,7 @@
 	{#if filtered.length}
 		<div class="media-grid">
 			{#each visibleAlbums as album}
-				<AlbumCard id={album[0]} title={album[1]} artist={artistMap.get(album[2] ?? -1) ?? 'Unknown artist'} year={album[3]} genre={album[4]} coverArtId={album[5]} />
+				<AlbumCard id={album[0]} title={album[1]} artist={albumArtistName(album)} year={album[3]} genre={album[4]} coverArtId={album[5]} />
 			{/each}
 		</div>
 		<ItemsPerPage bind:value={itemsPerPage} bind:page total={filtered.length} shown={visibleAlbums.length} />

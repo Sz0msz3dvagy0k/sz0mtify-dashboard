@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api';
 	import { formatBytes, formatNumber } from '$lib/format';
-	import type { AlbumTuple, ArtistTuple, DiscoveryList, ListeningStats, MetadataHealth, Overview, StorageStats } from '$lib/types';
+	import type { AlbumTuple, DiscoveryList, ListeningStats, MetadataHealth, Overview, StorageStats } from '$lib/types';
 	import StatCard from '$lib/components/StatCard.svelte';
 	import ChartCard from '$lib/components/ChartCard.svelte';
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
@@ -20,20 +20,18 @@
 	let metadata: MetadataHealth;
 	let listening: ListeningStats;
 	let albums: AlbumTuple[] = [];
-	let artists: ArtistTuple[] = [];
 	let discovery: DiscoveryList | null = null;
 
 	async function load() {
 		loading = true;
 		error = '';
 		try {
-			[overview, storage, metadata, listening, albums, artists, discovery] = await Promise.all([
+			[overview, storage, metadata, listening, albums, discovery] = await Promise.all([
 				api.overview(),
 				api.storage(),
 				api.metadataHealth(),
 				api.listening(),
 				api.albums(),
-				api.artists(),
 				api.newReleases('limit=4')
 			]);
 		} catch (e) {
@@ -45,9 +43,12 @@
 
 	$: healthScore = overview ? Math.round(((overview.total_tracks - metadata.missing_genre) / Math.max(overview.total_tracks, 1)) * 100) : 0;
 	$: genreData = storage?.size_by_genre.slice(0, 8).map(([name, bytes]) => ({ name: name ?? 'Unknown', value: bytes })) ?? [];
-	$: artistMap = new Map(artists.map(([id, name]) => [id, name]));
 
 	onMount(load);
+
+	function albumArtistName(album: AlbumTuple): string {
+		return album[6] ?? 'Unknown artist';
+	}
 </script>
 
 {#if loading}
@@ -84,7 +85,7 @@
 			<SectionHeader title="Recently Indexed Albums" eyebrow={`${albums.length} shown`} action="All albums" href="/albums" />
 			<div class="album-strip">
 				{#each albums.slice(0, 6) as album}
-					<AlbumCard id={album[0]} title={album[1]} artist={artistMap.get(album[2] ?? -1) ?? 'Unknown artist'} year={album[3]} genre={album[4]} coverArtId={album[5]} />
+					<AlbumCard id={album[0]} title={album[1]} artist={albumArtistName(album)} year={album[3]} genre={album[4]} coverArtId={album[5]} />
 				{/each}
 			</div>
 		</div>

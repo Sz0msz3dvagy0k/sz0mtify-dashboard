@@ -37,12 +37,35 @@ impl AnalyticsService {
     }
 
     pub async fn albums(&self, p: &sqlx::SqlitePool) -> anyhow::Result<serde_json::Value> {
-        let rows =
-            sqlx::query_as::<_, (i64, String, Option<i64>, Option<i64>, Option<String>, Option<String>)>(
-                "SELECT id, title, artist_id, year, genre, cover_art_id FROM albums ORDER BY id DESC LIMIT 300",
-            )
-            .fetch_all(p)
-            .await?;
+        let rows = sqlx::query_as::<
+            _,
+            (
+                i64,
+                String,
+                Option<i64>,
+                Option<i64>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+            ),
+        >(
+            "SELECT al.id,
+                    al.title,
+                    al.artist_id,
+                    al.year,
+                    al.genre,
+                    al.cover_art_id,
+                    COALESCE(NULLIF(album_artist.name, ''), NULLIF(artist.name, '')) AS artist_name,
+                    al.created_at
+             FROM albums al
+             LEFT JOIN artists artist ON artist.id = al.artist_id
+             LEFT JOIN artists album_artist ON album_artist.id = al.album_artist_id
+             ORDER BY datetime(al.created_at) DESC, al.id DESC
+             LIMIT 300",
+        )
+        .fetch_all(p)
+        .await?;
         Ok(json!(rows))
     }
 
@@ -622,6 +645,28 @@ mod tests {
         assert_eq!(value["total_storage_bytes"], 300);
         assert_eq!(value["tracks_size_bytes"], 300);
         assert_eq!(value["size_by_album"][0][3], 300);
+    }
+
+    #[tokio::test]
+    async fn albums_include_resolved_artist_name_and_created_at() {
+        let pool = test_pool().await;
+        sqlx::query("INSERT INTO artists(id,name) VALUES(1,'Track Artist'),(2,'Album Artist')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO albums(id,title,artist_id,album_artist_id,created_at)
+             VALUES(1,'Album',1,2,'2026-05-19T12:34:56Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let value = AnalyticsService.albums(&pool).await.unwrap();
+
+        assert_eq!(value[0][1], "Album");
+        assert_eq!(value[0][6], "Album Artist");
+        assert_eq!(value[0][7], "2026-05-19T12:34:56Z");
     }
 
     #[tokio::test]

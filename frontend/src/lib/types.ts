@@ -48,7 +48,16 @@ export type Overview = {
 };
 
 export type TrackTuple = [number, string, number | null, number | null, number | null, string | null];
-export type AlbumTuple = [number, string, number | null, number | null, string | null, string | null];
+export type AlbumTuple = [
+	number,
+	string,
+	number | null,
+	number | null,
+	string | null,
+	string | null,
+	string | null,
+	string | null
+];
 export type ArtistTuple = [
 	number,
 	string,

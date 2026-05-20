@@ -266,6 +266,7 @@ async fn import_subsonic_album(
         return Ok(0);
     }
     let artist_name = album["artist"].as_str().unwrap_or("Unknown Artist");
+    let created_at = album_created_at(album);
     let parsed_album_artist = parse_artist_credit(artist_name);
     let album_primary_artist = first_primary_artist_name(&parsed_album_artist);
     let artist_db_id = upsert_artist(
@@ -275,7 +276,7 @@ async fn import_subsonic_album(
     )
     .await?;
 
-    sqlx::query("INSERT INTO albums(subsonic_id,title,artist_id,album_artist_id,year,genre,song_count,duration_seconds,size_bytes,cover_art_id,play_count) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(subsonic_id) DO UPDATE SET title=excluded.title, artist_id=excluded.artist_id, album_artist_id=excluded.album_artist_id, year=excluded.year, genre=excluded.genre, song_count=excluded.song_count, duration_seconds=excluded.duration_seconds, size_bytes=excluded.size_bytes, cover_art_id=excluded.cover_art_id, play_count=excluded.play_count, updated_at=datetime('now')")
+    sqlx::query("INSERT INTO albums(subsonic_id,title,artist_id,album_artist_id,year,genre,song_count,duration_seconds,size_bytes,cover_art_id,play_count,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,COALESCE(?,datetime('now'))) ON CONFLICT(subsonic_id) DO UPDATE SET title=excluded.title, artist_id=excluded.artist_id, album_artist_id=excluded.album_artist_id, year=excluded.year, genre=excluded.genre, song_count=excluded.song_count, duration_seconds=excluded.duration_seconds, size_bytes=excluded.size_bytes, cover_art_id=excluded.cover_art_id, play_count=excluded.play_count, created_at=COALESCE(?, albums.created_at), updated_at=datetime('now')")
         .bind(album_id)
         .bind(album["name"].as_str().unwrap_or("Unknown Album"))
         .bind(artist_db_id)
@@ -287,6 +288,8 @@ async fn import_subsonic_album(
         .bind(album["size"].as_i64().unwrap_or(0))
         .bind(album["coverArt"].as_str())
         .bind(album["playCount"].as_i64().unwrap_or(0))
+        .bind(created_at)
+        .bind(created_at)
         .execute(pool)
         .await?;
 
@@ -500,6 +503,12 @@ fn subsonic_artist_id_for_credit<'a>(
     } else {
         None
     }
+}
+
+fn album_created_at(album: &serde_json::Value) -> Option<&str> {
+    ["created", "createdAt", "dateAdded", "added"]
+        .iter()
+        .find_map(|key| album[*key].as_str().and_then(non_empty))
 }
 
 async fn imported_track_id(
@@ -1434,6 +1443,16 @@ mod tests {
             subsonic_artist_id_for_credit(&compound, Some("compound-id")),
             None
         );
+    }
+
+    #[test]
+    fn album_created_at_reads_subsonic_added_metadata() {
+        let album = serde_json::json!({
+            "id": "album-1",
+            "created": "2026-05-19T12:34:56Z"
+        });
+
+        assert_eq!(album_created_at(&album), Some("2026-05-19T12:34:56Z"));
     }
 
     #[test]

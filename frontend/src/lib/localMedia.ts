@@ -357,7 +357,16 @@ export async function offlineAlbums(): Promise<AlbumTuple[]> {
 	return Object.values(manifest.albums)
 		.filter((album) => album.trackIds.some((id) => manifest.tracks[String(id)]))
 		.sort((a, b) => a.title.localeCompare(b.title))
-		.map((album) => [album.id, album.title, localArtistId(album.artistName), album.year, album.genre, album.coverArtId]);
+		.map((album) => [
+			album.id,
+			album.title,
+			localArtistId(album.artistName),
+			album.year,
+			album.genre,
+			album.coverArtId,
+			album.artistName,
+			album.downloadedAt
+		]);
 }
 
 export async function offlineAlbum(id: number): Promise<AlbumDetail> {
