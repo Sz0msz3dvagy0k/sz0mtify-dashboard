@@ -219,6 +219,7 @@ table { width: 100%; border-collapse: collapse; min-width: 560px; }
 .track-table { min-width: 0; table-layout: fixed; }
 .track-table th:first-child, .track-table td:first-child { width: 48px; }
 .track-table th:nth-child(2), .track-table td:nth-child(2), .track-table th:nth-child(4), .track-table td:nth-child(4) { width: 54px; }
+.track-table th:last-child, .track-table td:last-child { width: 54px; text-align: right; overflow: visible; }
 th, td { padding: 12px 14px; border-bottom: 1px solid #262626; text-align: left; font-size: 13px; }
 th { color: #737373; text-transform: uppercase; letter-spacing: .12em; }
 tr:hover td { background: #141414; }
@@ -230,20 +231,29 @@ tr:hover td { background: #141414; }
 	white-space: nowrap;
 }
 .playlist-track-table th:nth-child(2), .playlist-track-table td:nth-child(2) { width: 62px; }
-.playlist-track-table { min-width: 720px; }
-.playlist-track-table th:nth-child(4), .playlist-track-table td:nth-child(4) { width: 22%; }
-.playlist-track-table th:nth-child(5), .playlist-track-table td:nth-child(5) { width: 24%; }
-.playlist-track-table th:nth-child(6), .playlist-track-table td:nth-child(6) { width: 92px; }
+.playlist-track-table { min-width: 680px; }
+.playlist-track-table th:nth-child(4), .playlist-track-table td:nth-child(4) { width: 28%; }
+.playlist-track-table th:nth-child(5), .playlist-track-table td:nth-child(5) { width: 92px; }
+.playlist-track-table th:nth-child(6), .playlist-track-table td:nth-child(6) { width: 54px; }
 .playlist-track-table td:nth-child(3),
-.playlist-track-table td:nth-child(4),
-.playlist-track-table td:nth-child(5) {
+.playlist-track-table td:nth-child(4) {
 	max-width: 1px;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
-.playlist-mobile-artist { display: none; }
+.playlist-track-artist {
+	display: block;
+	min-width: 0;
+	margin-top: 3px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: #a3a3a3;
+	font-size: 12px;
+}
 .playlist-mobile-duration-heading { display: none; }
+.table-wrap:has(.track-actions.open) { overflow: visible; }
 tr.highlight-row td { background: rgba(255,255,255,.16); transition: background .25s ease; }
 tr.playing-row td { background: rgba(245,245,245,.11); transition: background .25s ease; }
 .table-link { display: inline-flex; align-items: center; min-height: 24px; border-bottom: 1px solid #525252; }
@@ -439,6 +449,83 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 .icon-button:disabled { opacity: .35; cursor: not-allowed; }
 .icon-button.primary { background: #f5f5f5; color: #050505; border-color: #f5f5f5; }
 .icon-button.active { border-color: #f5f5f5; background: #f5f5f5; color: #050505; }
+.track-actions {
+	position: relative;
+	display: flex;
+	justify-content: flex-end;
+}
+.track-actions-trigger {
+	opacity: 0;
+	pointer-events: none;
+	transition: opacity .16s ease, border-color .16s ease, background .16s ease;
+}
+tr:hover .track-actions-trigger,
+tr:focus-within .track-actions-trigger,
+.track-actions.open .track-actions-trigger {
+	opacity: 1;
+	pointer-events: auto;
+}
+.track-actions-menu {
+	position: absolute;
+	top: calc(100% + 6px);
+	right: 0;
+	z-index: 30;
+	display: grid;
+	gap: 4px;
+	min-width: 210px;
+	padding: 6px;
+	border: 1px solid #404040;
+	border-radius: 8px;
+	background: #0a0a0a;
+	box-shadow: 0 18px 48px rgba(0,0,0,.46);
+	text-align: left;
+}
+.track-actions-menu button,
+.track-actions-menu a {
+	width: 100%;
+	min-height: 34px;
+	display: flex;
+	align-items: center;
+	gap: 9px;
+	padding: 0 9px;
+	border: 0;
+	border-radius: 6px;
+	background: transparent;
+	color: #e5e5e5;
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+.track-actions-menu button:hover:not(:disabled),
+.track-actions-menu a:hover {
+	background: #181818;
+	color: #fff;
+}
+.track-actions-menu button:disabled {
+	color: #737373;
+	cursor: not-allowed;
+}
+.playlist-picker {
+	display: grid;
+	gap: 3px;
+	max-height: 220px;
+	overflow: auto;
+	padding: 3px 0 5px 18px;
+	border-bottom: 1px solid #262626;
+}
+.playlist-picker button {
+	min-height: 30px;
+	font-size: 12px;
+}
+.menu-status {
+	display: inline-flex;
+	align-items: center;
+	gap: 7px;
+	padding: 7px 9px;
+	color: #8a8a8a;
+	font-size: 12px;
+}
+.menu-status.error { color: #fca5a5; }
 .menu-button { display: none; flex: 0 0 auto; }
 .genre-link {
 	border: 0;
@@ -1086,26 +1173,32 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 		background: rgba(245,245,245,.18);
 	}
 	.playlist-table-wrap { overflow-x: hidden; }
+	.table-wrap:has(.track-actions.open),
+	.playlist-table-wrap:has(.track-actions.open) { overflow: visible; }
 	.playlist-track-table {
 		width: 100%;
 		min-width: 0;
 	}
 	.playlist-track-table th:nth-child(4),
-	.playlist-track-table td:nth-child(4),
-	.playlist-track-table th:nth-child(5),
-	.playlist-track-table td:nth-child(5) {
+	.playlist-track-table td:nth-child(4) {
 		display: none;
 	}
 	.playlist-track-table th:first-child,
 	.playlist-track-table td:first-child { width: 46px; }
 	.playlist-track-table th:nth-child(2),
 	.playlist-track-table td:nth-child(2) { width: 54px; }
-	.playlist-track-table th:nth-child(6),
-	.playlist-track-table td:nth-child(6) {
+	.playlist-track-table th:nth-child(5),
+	.playlist-track-table td:nth-child(5) {
 		width: 72px;
 		padding-left: 8px;
 		padding-right: 10px;
 		text-align: right;
+	}
+	.playlist-track-table th:nth-child(6),
+	.playlist-track-table td:nth-child(6) {
+		width: 46px;
+		padding-left: 4px;
+		padding-right: 8px;
 	}
 	.playlist-desktop-duration-heading { display: none; }
 	.playlist-mobile-duration-heading { display: inline; }
@@ -1113,18 +1206,15 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 		white-space: normal;
 	}
 	.playlist-track-title,
-	.playlist-mobile-artist {
+	.playlist-track-artist {
 		display: block;
 		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
-	.playlist-mobile-artist {
-		margin-top: 3px;
-		color: #a3a3a3;
-		font-size: 12px;
-	}
+	.track-actions-trigger { opacity: 1; pointer-events: auto; }
+	.track-actions-menu { right: -4px; min-width: min(210px, calc(100vw - 32px)); }
 	.hero-grid, .dashboard-grid, .split-grid, .album-strip, .detail-hero { grid-template-columns: 1fr; }
 	.album-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 	.status-pill { max-width: 100%; }

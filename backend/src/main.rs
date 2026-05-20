@@ -141,6 +141,10 @@ async fn run() -> anyhow::Result<()> {
         .route("/api/playlists", get(api::handlers::playlists))
         .route("/api/playlists/:id", get(api::handlers::playlist_by_id))
         .route(
+            "/api/playlists/:id/tracks",
+            post(api::handlers::add_track_to_playlist),
+        )
+        .route(
             "/api/stats/audio-quality",
             get(api::handlers::audio_quality),
         )

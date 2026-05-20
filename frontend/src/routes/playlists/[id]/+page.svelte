@@ -8,6 +8,7 @@
 	import ErrorState from '$lib/components/ErrorState.svelte';
 	import ImageWithFallback from '$lib/components/ImageWithFallback.svelte';
 	import StatCard from '$lib/components/StatCard.svelte';
+	import TrackActionsMenu from '$lib/components/TrackActionsMenu.svelte';
 	import { coverUrl, formatDuration, formatNumber } from '$lib/format';
 	import { downloadPlaylist, downloadTrack, localMedia, type DownloadProgress } from '$lib/localMedia';
 	import { player, playQueue, type QueueTrack } from '$lib/player';
@@ -151,7 +152,6 @@
 					<th></th>
 					<th></th>
 					<th>Track</th>
-					<th>Artist</th>
 					<th>Album</th>
 					<th><span class="playlist-desktop-duration-heading">Duration</span><span class="playlist-mobile-duration-heading">Time</span></th>
 					<th></th>
@@ -174,20 +174,18 @@
 						</td>
 						<td>
 							<span class="playlist-track-title">{track[1]}</span>
-							<span class="playlist-mobile-artist">{track[2] ?? 'Unknown artist'}</span>
+							<span class="playlist-track-artist">{track[2] ?? 'Unknown artist'}</span>
 						</td>
-						<td>{track[2] ?? 'Unknown artist'}</td>
 						<td>{track[4] ?? track[7] ?? '—'}</td>
 						<td>{formatDuration(track[6])}</td>
 						<td>
-							<button
-								class="icon-button"
-								aria-label={downloadedTrackIds.has(track[0]) ? `${track[1]} downloaded` : `Download ${track[1]}`}
-								disabled={downloadedTrackIds.has(track[0]) || downloadingTracks.has(track[0])}
-								on:click|stopPropagation={() => saveTrackOffline(track, index)}
-							>
-								{#if downloadingTracks.has(track[0])}<Loader2 size={16} />{:else if downloadedTrackIds.has(track[0])}<CheckCircle2 size={16} />{:else}<Download size={16} />{/if}
-							</button>
+							<TrackActionsMenu
+								track={playlistQueue[index]}
+								artistHref={track[8] ? `/artists/${track[8]}` : null}
+								onDownload={() => saveTrackOffline(track, index)}
+								downloaded={downloadedTrackIds.has(track[0])}
+								downloading={downloadingTracks.has(track[0])}
+							/>
 						</td>
 					</tr>
 				{/each}

@@ -9,6 +9,7 @@
 	import ErrorState from '$lib/components/ErrorState.svelte';
 	import ImageWithFallback from '$lib/components/ImageWithFallback.svelte';
 	import StatCard from '$lib/components/StatCard.svelte';
+	import TrackActionsMenu from '$lib/components/TrackActionsMenu.svelte';
 	import { coverUrl, formatDuration, formatNumber } from '$lib/format';
 	import { downloadAlbum, downloadTrack, localMedia, type DownloadProgress } from '$lib/localMedia';
 	import { player, playQueue, type QueueTrack } from '$lib/player';
@@ -173,14 +174,13 @@
 						<td>{track[1]}</td>
 						<td>{formatDuration(track[4])}</td>
 						<td>
-							<button
-								class="icon-button"
-								aria-label={downloadedTrackIds.has(track[0]) ? `${track[1]} downloaded` : `Download ${track[1]}`}
-								disabled={downloadedTrackIds.has(track[0]) || downloadingTracks.has(track[0])}
-								on:click|stopPropagation={() => saveTrackOffline(track, index)}
-							>
-								{#if downloadingTracks.has(track[0])}<Loader2 size={16} />{:else if downloadedTrackIds.has(track[0])}<CheckCircle2 size={16} />{:else}<Download size={16} />{/if}
-							</button>
+							<TrackActionsMenu
+								track={albumQueue[index]}
+								artistHref={album?.[2] ? `/artists/${album[2]}` : null}
+								onDownload={() => saveTrackOffline(track, index)}
+								downloaded={downloadedTrackIds.has(track[0])}
+								downloading={downloadingTracks.has(track[0])}
+							/>
 						</td>
 					</tr>
 				{/each}

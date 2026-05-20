@@ -110,6 +110,11 @@ export const api = {
 	playlists: () => offlineFallback(() => request<PlaylistSummary[]>('/api/playlists'), offlinePlaylists),
 	playlist: (id: string) =>
 		offlineFallback(() => request<PlaylistDetail>(`/api/playlists/${encodeURIComponent(id)}`), () => offlinePlaylist(id)),
+	addTrackToPlaylist: (playlistId: string, trackId: number) =>
+		request<{ status: string }>(`/api/playlists/${encodeURIComponent(playlistId)}/tracks`, {
+			method: 'POST',
+			body: JSON.stringify({ track_id: trackId })
+		}),
 	audioQuality: () => request<[number | null, number | null, number][]>('/api/stats/audio-quality'),
 	storage: () => offlineFallback(() => request<StorageStats>('/api/stats/storage'), offlineStorageStats),
 	metadataHealth: () => request<MetadataHealth>('/api/stats/metadata-health'),

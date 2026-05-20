@@ -584,7 +584,17 @@ function playlistTrackToQueueTrack(track: PlaylistTrack, detail: PlaylistDetail)
 
 function localTrackToPlaylistTrack(track: LocalTrack | undefined): PlaylistTrack | null {
 	if (!track) return null;
-	return [track.id, track.title, track.artist, track.albumId, track.album, track.coverArtId, track.duration, track.genre];
+	return [
+		track.id,
+		track.title,
+		track.artist,
+		track.albumId,
+		track.album,
+		track.coverArtId,
+		track.duration,
+		track.genre,
+		localArtistId(track.artist)
+	];
 }
 
 function playlistSummary(playlist: LocalPlaylist, manifest: LocalMediaManifest): PlaylistSummary {

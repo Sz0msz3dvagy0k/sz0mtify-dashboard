@@ -51,6 +51,11 @@ pub struct LoginPayload {
     pub password: String,
 }
 
+#[derive(Deserialize)]
+pub struct AddTrackToPlaylistPayload {
+    pub track_id: i64,
+}
+
 fn ok(data: Value) -> Json<Value> {
     Json(json!({"ok": true, "data": data}))
 }
@@ -353,6 +358,39 @@ pub async fn playlist_by_id(
         }
     }
 }
+
+pub async fn add_track_to_playlist(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(payload): Json<AddTrackToPlaylistPayload>,
+) -> impl IntoResponse {
+    if !is_valid_subsonic_id(&id) || payload.track_id <= 0 {
+        return (
+            StatusCode::BAD_REQUEST,
+            err("invalid_playlist_track_request"),
+        );
+    }
+
+    match add_subsonic_track_to_playlist(&state.pool, &id, payload.track_id).await {
+        Ok(()) => (StatusCode::OK, ok(json!({"status": "added"}))),
+        Err(error) if error.to_string().contains("track not found") => {
+            (StatusCode::NOT_FOUND, err("track_not_found"))
+        }
+        Err(error) => {
+            warn!(
+                playlist_id = id,
+                track_id = payload.track_id,
+                error = %error,
+                "failed to add track to playlist"
+            );
+            (
+                StatusCode::BAD_GATEWAY,
+                err("failed_to_add_track_to_playlist"),
+            )
+        }
+    }
+}
+
 pub async fn audio_quality(State(state): State<Arc<AppState>>) -> Json<Value> {
     respond_service!(
         state.analytics.audio_quality(&state.pool),
@@ -706,13 +744,16 @@ async fn fetch_subsonic_playlist(pool: &sqlx::SqlitePool, id: &str) -> anyhow::R
     let mut tracks = Vec::new();
     for entry in value_list(playlist.get("entry")) {
         let subsonic_id = entry["id"].as_str().unwrap_or_default();
-        let local = sqlx::query_as::<_, (i64, Option<i64>, Option<String>, Option<i64>)>(
-            "SELECT id, album_id, genre, duration_seconds FROM tracks WHERE subsonic_id = ? LIMIT 1",
+        let local = sqlx::query_as::<
+            _,
+            (i64, Option<i64>, Option<String>, Option<i64>, Option<i64>),
+        >(
+            "SELECT id, album_id, genre, duration_seconds, artist_id FROM tracks WHERE subsonic_id = ? LIMIT 1",
         )
         .bind(subsonic_id)
         .fetch_optional(pool)
         .await?;
-        let Some((track_id, album_id, genre, duration_seconds)) = local else {
+        let Some((track_id, album_id, genre, duration_seconds, artist_id)) = local else {
             continue;
         };
         tracks.push(json!([
@@ -723,7 +764,8 @@ async fn fetch_subsonic_playlist(pool: &sqlx::SqlitePool, id: &str) -> anyhow::R
             entry["album"].as_str(),
             entry["coverArt"].as_str(),
             duration_seconds.or_else(|| entry["duration"].as_i64()),
-            genre.or_else(|| entry["genre"].as_str().map(ToString::to_string))
+            genre.or_else(|| entry["genre"].as_str().map(ToString::to_string)),
+            artist_id
         ]));
     }
 
@@ -737,6 +779,33 @@ async fn fetch_subsonic_playlist(pool: &sqlx::SqlitePool, id: &str) -> anyhow::R
         },
         "tracks": tracks
     }))
+}
+
+async fn add_subsonic_track_to_playlist(
+    pool: &sqlx::SqlitePool,
+    playlist_id: &str,
+    track_id: i64,
+) -> anyhow::Result<()> {
+    let (subsonic_id,): (String,) =
+        sqlx::query_as("SELECT subsonic_id FROM tracks WHERE id = ? AND subsonic_id IS NOT NULL")
+            .bind(track_id)
+            .fetch_optional(pool)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("track not found"))?;
+    if !is_valid_subsonic_id(&subsonic_id) {
+        anyhow::bail!("track not found");
+    }
+
+    subsonic_json(
+        pool,
+        "updatePlaylist",
+        &[
+            ("playlistId", playlist_id.to_string()),
+            ("songIdToAdd", subsonic_id),
+        ],
+    )
+    .await?;
+    Ok(())
 }
 
 async fn subsonic_json(

@@ -176,7 +176,8 @@ export type PlaylistTrack = [
 	string | null,
 	string | null,
 	number | null,
-	string | null
+	string | null,
+	number | null
 ];
 
 export type PlaylistDetail = {
