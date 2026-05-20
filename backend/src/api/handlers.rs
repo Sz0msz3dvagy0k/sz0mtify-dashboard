@@ -308,6 +308,14 @@ pub async fn library_overview(State(state): State<Arc<AppState>>) -> Json<Value>
 pub async fn tracks(State(state): State<Arc<AppState>>) -> Json<Value> {
     respond_service!(state.analytics.tracks(&state.pool), "failed_to_load_tracks")
 }
+
+pub async fn track_by_id(State(state): State<Arc<AppState>>, Path(id): Path<i64>) -> Json<Value> {
+    respond_service!(
+        state.analytics.track_by_id(&state.pool, id),
+        "failed_to_load_track"
+    )
+}
+
 pub async fn albums(State(state): State<Arc<AppState>>) -> Json<Value> {
     respond_service!(state.analytics.albums(&state.pool), "failed_to_load_albums")
 }

@@ -11,7 +11,7 @@
 	import TrackRow from '$lib/components/TrackRow.svelte';
 	import SkeletonCard from '$lib/components/SkeletonCard.svelte';
 	import ErrorState from '$lib/components/ErrorState.svelte';
-	import { albumTrackHref } from '$lib/navigation';
+	import { trackHref } from '$lib/navigation';
 
 	let loading = true;
 	let error = '';
@@ -93,7 +93,7 @@
 			<SectionHeader title="Listening Profile" eyebrow={listening.data_source.replaceAll('_', ' ')} action="Listening" href="/listening" />
 			<div class="panel-list">
 				{#each listening.top_tracks.slice(0, 6) as track}
-					<TrackRow title={track[1]} count={track[3]} href={albumTrackHref(track[0], track[2])} />
+					<TrackRow title={track[1]} count={track[3]} href={trackHref(track[0])} />
 				{/each}
 			</div>
 		</div>

@@ -428,10 +428,10 @@ export async function offlineSearch(query: string): Promise<SearchResult> {
 	const manifest = await loadLocalMedia();
 	const tracks = Object.values(manifest.tracks)
 		.filter((track) => `${track.title} ${track.artist} ${track.album}`.toLowerCase().includes(normalized))
-		.map((track) => [track.id, track.title, track.artist, track.albumId, track.album, track.coverArtId, track.duration] as SearchResult['tracks'][number]);
+		.map((track) => [track.id, track.title, track.artist, track.albumId, track.album, track.coverArtId, track.duration, localArtistId(track.artist)] as SearchResult['tracks'][number]);
 	const albums = Object.values(manifest.albums)
 		.filter((album) => `${album.title} ${album.artistName}`.toLowerCase().includes(normalized))
-		.map((album) => [album.id, album.title, album.artistName, album.coverArtId] as SearchResult['albums'][number]);
+		.map((album) => [album.id, album.title, album.artistName, album.coverArtId, localArtistId(album.artistName)] as SearchResult['albums'][number]);
 	const artists = (await offlineArtists())
 		.filter((artist) => artist[1].toLowerCase().includes(normalized))
 		.map((artist) => [artist[0], artist[1], artist[5], artist[6]] as SearchResult['artists'][number]);

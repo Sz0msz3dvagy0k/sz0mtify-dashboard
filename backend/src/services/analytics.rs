@@ -36,6 +36,56 @@ impl AnalyticsService {
         Ok(json!(rows))
     }
 
+    pub async fn track_by_id(
+        &self,
+        p: &sqlx::SqlitePool,
+        id: i64,
+    ) -> anyhow::Result<serde_json::Value> {
+        let track = sqlx::query_as::<
+            _,
+            (
+                i64,
+                String,
+                Option<i64>,
+                Option<String>,
+                Option<i64>,
+                Option<String>,
+                Option<String>,
+                Option<i64>,
+                Option<i64>,
+                Option<i64>,
+                Option<i64>,
+                Option<String>,
+                Option<i64>,
+            ),
+        >(
+            "SELECT t.id,
+                    t.title,
+                    COALESCE(t.artist_id, al.artist_id, al.album_artist_id) AS artist_id,
+                    COALESCE(track_artist.name, artist.name, album_artist.name) AS artist_name,
+                    t.album_id,
+                    al.title AS album_title,
+                    al.cover_art_id,
+                    t.duration_seconds,
+                    t.track_number,
+                    t.disc_number,
+                    t.year,
+                    t.genre,
+                    t.play_count
+             FROM tracks t
+             LEFT JOIN artists track_artist ON track_artist.id = t.artist_id
+             LEFT JOIN albums al ON al.id = t.album_id
+             LEFT JOIN artists artist ON artist.id = al.artist_id
+             LEFT JOIN artists album_artist ON album_artist.id = al.album_artist_id
+             WHERE t.id = ?",
+        )
+        .bind(id)
+        .fetch_optional(p)
+        .await?;
+
+        Ok(json!({"track": track}))
+    }
+
     pub async fn albums(&self, p: &sqlx::SqlitePool) -> anyhow::Result<serde_json::Value> {
         let rows = sqlx::query_as::<
             _,
@@ -544,6 +594,7 @@ impl AnalyticsService {
                 Option<String>,
                 Option<String>,
                 Option<i64>,
+                Option<i64>,
             ),
         >(
             "SELECT t.id,
@@ -552,11 +603,12 @@ impl AnalyticsService {
                     t.album_id,
                     al.title,
                     al.cover_art_id,
-                    t.duration_seconds
+                    t.duration_seconds,
+                    COALESCE(t.artist_id, al.artist_id, al.album_artist_id) AS artist_id
              FROM tracks t
              LEFT JOIN artists ar ON ar.id = t.artist_id
              LEFT JOIN albums al ON al.id = t.album_id
-             LEFT JOIN artists album_artist ON album_artist.id = al.artist_id
+             LEFT JOIN artists album_artist ON album_artist.id = COALESCE(al.album_artist_id, al.artist_id)
              WHERE t.title LIKE ?
              ORDER BY COALESCE(t.play_count, 0) DESC, t.title ASC
              LIMIT 30",
@@ -564,17 +616,23 @@ impl AnalyticsService {
         .bind(&t)
         .fetch_all(p)
         .await?;
-        let albums = sqlx::query_as::<_, (i64, String, Option<String>, Option<String>)>(
-            "SELECT al.id, al.title, ar.name, al.cover_art_id
+        let albums =
+            sqlx::query_as::<_, (i64, String, Option<String>, Option<String>, Option<i64>)>(
+                "SELECT al.id,
+                    al.title,
+                    COALESCE(album_artist.name, ar.name),
+                    al.cover_art_id,
+                    COALESCE(al.album_artist_id, al.artist_id) AS artist_id
              FROM albums al
              LEFT JOIN artists ar ON ar.id = al.artist_id
+             LEFT JOIN artists album_artist ON album_artist.id = al.album_artist_id
              WHERE al.title LIKE ?
              ORDER BY COALESCE(al.play_count, 0) DESC, al.title ASC
              LIMIT 20",
-        )
-        .bind(&t)
-        .fetch_all(p)
-        .await?;
+            )
+            .bind(&t)
+            .fetch_all(p)
+            .await?;
         let artists = sqlx::query_as::<_, (i64, String, Option<String>, Option<String>)>(
             "SELECT ar.id,
                     ar.name,
@@ -667,6 +725,36 @@ mod tests {
         assert_eq!(value[0][1], "Album");
         assert_eq!(value[0][6], "Album Artist");
         assert_eq!(value[0][7], "2026-05-19T12:34:56Z");
+    }
+
+    #[tokio::test]
+    async fn track_detail_and_search_include_link_targets() {
+        let pool = test_pool().await;
+        sqlx::query("INSERT INTO artists(id,name) VALUES(1,'Artist')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO albums(id,title,artist_id,cover_art_id) VALUES(2,'Album',1,'cover')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO tracks(id,title,artist_id,album_id,duration_seconds)
+             VALUES(3,'Song',1,2,180)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let detail = AnalyticsService.track_by_id(&pool, 3).await.unwrap();
+        let search = AnalyticsService.search(&pool, "Song").await.unwrap();
+
+        assert_eq!(detail["track"][0], 3);
+        assert_eq!(detail["track"][2], 1);
+        assert_eq!(detail["track"][4], 2);
+        assert_eq!(search["tracks"][0][7], 1);
     }
 
     #[tokio::test]

@@ -65,16 +65,28 @@
 			<SectionHeader title="Tracks" eyebrow={`${result.tracks.length} results`} />
 			<div class="panel-list search-results">
 				{#each result.tracks as row, index}
-					<button use:swipeQueue={{ track: trackQueue[index] }} class="search-result-row" class:playing-row={row[0] === playingTrackId} on:click={() => playTrack(index)}>
-						<div class="search-result-art">
+					<div use:swipeQueue={{ track: trackQueue[index] }} class="search-result-row" class:playing-row={row[0] === playingTrackId}>
+						<button class="search-result-play" aria-label={`Play ${row[1]}`} on:click={() => playTrack(index)}>
 							<ImageWithFallback src={coverUrl(row[5])} alt={row[1]} />
-						</div>
+						</button>
 						<span>
-							<strong>{row[1]}</strong>
-							<small>{row[2] ?? 'Unknown artist'} · {row[4] ?? 'Unknown album'}</small>
+							<a class="result-title-link" href={`/tracks/${row[0]}`}>{row[1]}</a>
+							<small>
+								{#if row[7]}
+									<a href={`/artists/${row[7]}`}>{row[2] ?? 'Unknown artist'}</a>
+								{:else}
+									<span>{row[2] ?? 'Unknown artist'}</span>
+								{/if}
+								<span> · </span>
+								{#if row[3]}
+									<a href={`/albums/${row[3]}`}>{row[4] ?? 'Unknown album'}</a>
+								{:else}
+									<span>{row[4] ?? 'Unknown album'}</span>
+								{/if}
+							</small>
 						</span>
 						<em>{formatDuration(row[6])}</em>
-					</button>
+					</div>
 				{/each}
 			</div>
 		</div>
@@ -82,15 +94,21 @@
 			<SectionHeader title="Albums" eyebrow={`${result.albums.length} results`} />
 			<div class="panel-list search-results">
 				{#each result.albums as row}
-					<a class="search-result-row" href={`/albums/${row[0]}`}>
-						<div class="search-result-art">
+					<div class="search-result-row">
+						<a class="search-result-art" href={`/albums/${row[0]}`}>
 							<ImageWithFallback src={coverUrl(row[3])} alt={row[1]} />
-						</div>
+						</a>
 						<span>
-							<strong>{row[1]}</strong>
-							<small>{row[2] ?? 'Unknown artist'}</small>
+							<a class="result-title-link" href={`/albums/${row[0]}`}>{row[1]}</a>
+							<small>
+								{#if row[4]}
+									<a href={`/artists/${row[4]}`}>{row[2] ?? 'Unknown artist'}</a>
+								{:else}
+									{row[2] ?? 'Unknown artist'}
+								{/if}
+							</small>
 						</span>
-					</a>
+					</div>
 				{/each}
 			</div>
 			<SectionHeader title="Artists" eyebrow={`${result.artists.length} results`} />

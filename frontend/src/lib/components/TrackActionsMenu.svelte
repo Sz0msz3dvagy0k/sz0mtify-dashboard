@@ -5,7 +5,7 @@
 	import { queueTrackAtTop, type QueueTrack } from '$lib/player';
 	import type { PlaylistSummary } from '$lib/types';
 
-	export let track: QueueTrack;
+	export let track: QueueTrack | null | undefined;
 	export let artistHref: string | null = null;
 	export let onDownload: (() => void | Promise<void>) | null = null;
 	export let downloadDisabled = false;
@@ -21,7 +21,8 @@
 	let shareStatus = '';
 	let root: HTMLDivElement | null = null;
 
-	$: canDownload = Boolean(onDownload) && !downloaded && !downloading && !downloadDisabled;
+	$: trackTitle = track?.title ?? 'track';
+	$: canDownload = Boolean(track && onDownload) && !downloaded && !downloading && !downloadDisabled;
 
 	onMount(() => {
 		document.addEventListener('pointerdown', closeFromOutside);
@@ -37,6 +38,7 @@
 	}
 
 	function toggleMenu() {
+		if (!track) return;
 		open = !open;
 		if (!open) resetNestedState();
 	}
@@ -69,6 +71,7 @@
 	}
 
 	async function addToPlaylist(playlist: PlaylistSummary) {
+		if (!track) return;
 		addingPlaylistId = playlist.id;
 		playlistError = '';
 		try {
@@ -82,17 +85,20 @@
 	}
 
 	function addToQueue() {
+		if (!track) return;
 		queueTrackAtTop(track);
 		closeMenu();
 	}
 
 	function shareUrl() {
+		if (!track) return '';
 		if (typeof window === 'undefined') return '';
 		if (track.albumId) return `${window.location.origin}/albums/${track.albumId}?track=${track.id}`;
 		return window.location.href;
 	}
 
 	async function shareTrack() {
+		if (!track) return;
 		const url = shareUrl();
 		const text = `${track.title} - ${track.artist}`;
 		shareStatus = '';
@@ -121,9 +127,10 @@
 	<button
 		class="icon-button track-actions-trigger"
 		type="button"
-		aria-label={`Track actions for ${track.title}`}
+		aria-label={`Track actions for ${trackTitle}`}
 		aria-haspopup="menu"
 		aria-expanded={open}
+		disabled={!track}
 		on:click|stopPropagation={toggleMenu}
 	>
 		<MoreHorizontal size={18} />

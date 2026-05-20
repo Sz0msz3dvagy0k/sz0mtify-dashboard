@@ -26,7 +26,7 @@
 	import { loadLocalMedia } from '$lib/localMedia';
 	import { warmStreamToken } from '$lib/player';
 	import type { AuthSession, PlaylistSummary } from '$lib/types';
-	import { onMount, tick } from 'svelte';
+	import { onDestroy, onMount, tick } from 'svelte';
 	import LoginPage from './LoginPage.svelte';
 	import PlayerBar from './PlayerBar.svelte';
 
@@ -57,12 +57,13 @@
 	let searchOpen = false;
 	let searchValue = '';
 	let syncedSearchParam: string | null = null;
+	let searchTimer: ReturnType<typeof setTimeout> | null = null;
 	let searchInput: HTMLInputElement;
 	let swipeStartX = 0;
 	let swipeStartY = 0;
 	let trackedSwipe: 'open' | 'close' | null = null;
 	$: current = nav.find((item) => $page.url.pathname.startsWith(item.href)) ?? nav[0];
-	$: currentLabel = $page.url.pathname.startsWith('/search') ? 'Search' : current.label;
+	$: currentLabel = $page.url.pathname.startsWith('/search') ? 'Search' : $page.url.pathname.startsWith('/tracks') ? 'Track' : current.label;
 	$: if ($page.url.pathname === '/search') {
 		const queryParam = $page.url.searchParams.get('q') ?? '';
 		if (queryParam !== syncedSearchParam) {
@@ -99,6 +100,10 @@
 		} finally {
 			authChecked = true;
 		}
+	});
+
+	onDestroy(() => {
+		if (searchTimer) clearTimeout(searchTimer);
 	});
 
 	async function loadShellData() {
@@ -139,12 +144,32 @@
 		searchInput?.blur();
 	}
 
+	function handleSearchInput(event: Event) {
+		searchValue = event.currentTarget instanceof HTMLInputElement ? event.currentTarget.value : searchValue;
+		scheduleSearch(searchValue);
+	}
+
+	function scheduleSearch(value: string) {
+		if (searchTimer) clearTimeout(searchTimer);
+		searchTimer = setTimeout(() => {
+			void navigateToSearch(value.trim(), true);
+		}, 1000);
+	}
+
 	async function submitSearch() {
-		const query = searchValue.trim();
+		if (searchTimer) clearTimeout(searchTimer);
+		searchTimer = null;
+		await navigateToSearch(searchValue.trim(), false);
+	}
+
+	async function navigateToSearch(query: string, debounced: boolean) {
 		if (!query) return;
 		if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-		closeSearch();
-		await goto(`/search?q=${encodeURIComponent(query)}`);
+		if (searchOpen) closeSearch();
+		const target = `/search?q=${encodeURIComponent(query)}`;
+		if ($page.url.pathname === '/search' && $page.url.searchParams.get('q') === query) return;
+		await goto(target);
+		if (!debounced) syncedSearchParam = query;
 	}
 
 	function isMobileViewport() {
@@ -255,7 +280,7 @@
 				</div>
 				<form class="topbar-search desktop-search" role="search" on:submit|preventDefault={submitSearch}>
 					<Search size={18} strokeWidth={1.6} />
-					<input bind:value={searchValue} placeholder="Search tracks, albums, artists" aria-label="Search tracks, albums, artists" />
+					<input bind:value={searchValue} placeholder="Search tracks, albums, artists" aria-label="Search tracks, albums, artists" on:input={handleSearchInput} />
 				</form>
 				<div class="topbar-actions">
 					<button class="icon-button" aria-label={`Sign out ${accountName}`} title={`Signed in as ${accountName}`} on:click={signOut}>
@@ -271,7 +296,7 @@
 					<button class="search-overlay-backdrop" aria-label="Close search" on:click={closeSearch}></button>
 					<form class="topbar-search mobile-search" role="search" on:submit|preventDefault={submitSearch}>
 						<Search size={18} strokeWidth={1.6} />
-						<input bind:this={searchInput} bind:value={searchValue} placeholder="Search tracks, albums, artists" aria-label="Search tracks, albums, artists" on:keydown={(event) => event.key === 'Escape' && closeSearch()} />
+						<input bind:this={searchInput} bind:value={searchValue} placeholder="Search tracks, albums, artists" aria-label="Search tracks, albums, artists" on:input={handleSearchInput} on:keydown={(event) => event.key === 'Escape' && closeSearch()} />
 						<button class="icon-button" type="button" aria-label="Close search" on:click={closeSearch}>
 							<X size={18} strokeWidth={1.6} />
 						</button>

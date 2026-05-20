@@ -78,7 +78,7 @@
 		if (!detail || downloadingTracks.has(track[0])) return;
 		downloadingTracks = new Set([...downloadingTracks, track[0]]);
 		try {
-			await downloadTrack(playlistQueue[index], {
+			await downloadTrack(trackToQueueItem(track, detail), {
 				playlist: {
 					id: detail.playlist.id,
 					name: detail.playlist.name,
@@ -159,7 +159,7 @@
 			</thead>
 			<tbody>
 				{#each detail.tracks as track, index}
-					<tr use:swipeQueue={{ track: playlistQueue[index] }} class:playing-row={track[0] === playingTrackId} on:click={() => play(index)}>
+					<tr use:swipeQueue={{ track: trackToQueueItem(track, detail) }} class:playing-row={track[0] === playingTrackId} on:click={() => play(index)}>
 						<td>
 							{#if track[0] === playingTrackId}
 								<div class="playing-indicator" aria-label="Now playing"><span></span><span></span><span></span></div>
@@ -173,14 +173,24 @@
 							</div>
 						</td>
 						<td>
-							<span class="playlist-track-title">{track[1]}</span>
-							<span class="playlist-track-artist">{track[2] ?? 'Unknown artist'}</span>
+							<a class="playlist-track-title table-inline-link" href={`/tracks/${track[0]}`} on:click|stopPropagation>{track[1]}</a>
+							{#if track[8]}
+								<a class="playlist-track-artist table-inline-link muted-link" href={`/artists/${track[8]}`} on:click|stopPropagation>{track[2] ?? 'Unknown artist'}</a>
+							{:else}
+								<span class="playlist-track-artist">{track[2] ?? 'Unknown artist'}</span>
+							{/if}
 						</td>
-						<td>{track[4] ?? track[7] ?? '—'}</td>
+						<td>
+							{#if track[3]}
+								<a class="table-inline-link muted-link" href={`/albums/${track[3]}`} on:click|stopPropagation>{track[4] ?? track[7] ?? '—'}</a>
+							{:else}
+								{track[4] ?? track[7] ?? '—'}
+							{/if}
+						</td>
 						<td>{formatDuration(track[6])}</td>
 						<td>
 							<TrackActionsMenu
-								track={playlistQueue[index]}
+								track={trackToQueueItem(track, detail)}
 								artistHref={track[8] ? `/artists/${track[8]}` : null}
 								onDownload={() => saveTrackOffline(track, index)}
 								downloaded={downloadedTrackIds.has(track[0])}

@@ -12,7 +12,7 @@
 	import StatCard from '$lib/components/StatCard.svelte';
 	import TrackRow from '$lib/components/TrackRow.svelte';
 	import { formatBytes, formatNumber } from '$lib/format';
-	import { albumTrackHref } from '$lib/navigation';
+	import { trackHref } from '$lib/navigation';
 
 	let genres: GenreTuple[] = [];
 	let tracks: TrackTuple[] = [];
@@ -64,7 +64,7 @@
 				{#if selectedGenreTracks.length}
 					<div class="panel-list">
 						{#each selectedGenreTracks as track}
-							<TrackRow title={track[1]} detail={track[5] ?? ''} duration={track[4]} href={albumTrackHref(track[0], track[3])} />
+							<TrackRow title={track[1]} detail={track[5] ?? ''} duration={track[4]} href={trackHref(track[0])} />
 						{/each}
 					</div>
 				{:else}

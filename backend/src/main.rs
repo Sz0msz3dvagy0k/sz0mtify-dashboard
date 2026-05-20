@@ -133,6 +133,7 @@ async fn run() -> anyhow::Result<()> {
             get(api::handlers::library_overview),
         )
         .route("/api/library/tracks", get(api::handlers::tracks))
+        .route("/api/library/tracks/:id", get(api::handlers::track_by_id))
         .route("/api/library/albums", get(api::handlers::albums))
         .route("/api/library/albums/:id", get(api::handlers::album_by_id))
         .route("/api/library/artists", get(api::handlers::artists))

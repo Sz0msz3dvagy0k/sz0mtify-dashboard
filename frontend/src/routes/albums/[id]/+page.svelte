@@ -102,7 +102,7 @@
 		if (!album || downloadingTracks.has(track[0])) return;
 		downloadingTracks = new Set([...downloadingTracks, track[0]]);
 		try {
-			await downloadTrack(albumQueue[index], {
+			await downloadTrack(trackToQueueItem(track), {
 				album: {
 					id: album[0],
 					title: album[1],
@@ -162,7 +162,7 @@
 			</thead>
 			<tbody>
 				{#each albumTracks as track, index}
-					<tr use:swipeQueue={{ track: albumQueue[index] }} class:highlight-row={track[0] === highlightedTrackId} class:playing-row={track[0] === playingTrackId} on:click={() => play(index)}>
+					<tr use:swipeQueue={{ track: trackToQueueItem(track) }} class:highlight-row={track[0] === highlightedTrackId} class:playing-row={track[0] === playingTrackId} on:click={() => play(index)}>
 						<td>
 							{#if track[0] === playingTrackId}
 								<div class="playing-indicator" aria-label="Now playing"><span></span><span></span><span></span></div>
@@ -171,11 +171,11 @@
 							{/if}
 						</td>
 						<td>{track[2] ?? '—'}</td>
-						<td>{track[1]}</td>
+						<td><a class="table-inline-link" href={`/tracks/${track[0]}`} on:click|stopPropagation>{track[1]}</a></td>
 						<td>{formatDuration(track[4])}</td>
 						<td>
 							<TrackActionsMenu
-								track={albumQueue[index]}
+								track={trackToQueueItem(track)}
 								artistHref={album?.[2] ? `/artists/${album[2]}` : null}
 								onDownload={() => saveTrackOffline(track, index)}
 								downloaded={downloadedTrackIds.has(track[0])}

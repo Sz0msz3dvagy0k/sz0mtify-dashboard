@@ -31,6 +31,24 @@ export type TrackLyrics = {
 	text: string | null;
 };
 
+export type TrackDetail = {
+	track: [
+		number,
+		string,
+		number | null,
+		string | null,
+		number | null,
+		string | null,
+		string | null,
+		number | null,
+		number | null,
+		number | null,
+		number | null,
+		string | null,
+		number | null
+	] | null;
+};
+
 export type ActiveSession = {
 	session_id: string;
 	username: string;
@@ -155,8 +173,8 @@ export type DiscoveryRefresh = {
 };
 
 export type SearchResult = {
-	tracks: [number, string, string | null, number | null, string | null, string | null, number | null][];
-	albums: [number, string, string | null, string | null][];
+	tracks: [number, string, string | null, number | null, string | null, string | null, number | null, number | null][];
+	albums: [number, string, string | null, string | null, number | null][];
 	artists: [number, string, string | null, string | null][];
 };
 

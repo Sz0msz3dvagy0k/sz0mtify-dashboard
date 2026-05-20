@@ -230,6 +230,12 @@ tr:hover td { background: #141414; }
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
+.table-inline-link {
+	color: #f5f5f5;
+	text-decoration: none;
+}
+.table-inline-link:hover { text-decoration: underline; }
+.muted-link { color: #a3a3a3; }
 .playlist-track-table th:nth-child(2), .playlist-track-table td:nth-child(2) { width: 62px; }
 .playlist-track-table { min-width: 680px; }
 .playlist-track-table th:nth-child(4), .playlist-track-table td:nth-child(4) { width: 28%; }
@@ -352,17 +358,24 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 	display: grid;
 	gap: 4px;
 }
-.search-result-row strong, .search-result-row small {
+.search-result-row strong, .search-result-row small, .result-title-link {
 	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
+.result-title-link {
+	color: #f5f5f5;
+	font-weight: 700;
+}
+.result-title-link:hover,
+.search-result-row small a:hover { text-decoration: underline; }
 .search-result-row small, .search-result-row em {
 	color: #8a8a8a;
 	font-size: 13px;
 	font-style: normal;
 }
+.search-result-row small a { color: inherit; }
 .search-result-art {
 	width: 48px;
 	height: 48px;
@@ -371,6 +384,18 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 	border-radius: 6px;
 	background: #181818;
 }
+.search-result-play {
+	width: 48px;
+	height: 48px;
+	padding: 0;
+	border: 1px solid #262626;
+	border-radius: 6px;
+	background: #181818;
+	color: inherit;
+	overflow: hidden;
+	cursor: pointer;
+}
+.search-result-play:hover { border-color: #737373; }
 .search-result-art.artist { border-radius: 999px; }
 .swipe-queue-target { touch-action: pan-y; }
 .history-section + .history-section { margin-top: 20px; }
@@ -633,6 +658,20 @@ tr:focus-within .track-actions-trigger,
 .detail-hero h2 { margin: 0 0 20px; font-size: clamp(34px, 6vw, 72px); line-height: .95; }
 .compact { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .bio { max-width: 820px; color: #d4d4d4; line-height: 1.65; }
+.track-meta-links {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+	margin: -8px 0 20px;
+	color: #a3a3a3;
+}
+.track-meta-links a { color: #f5f5f5; }
+.track-meta-links a:hover { text-decoration: underline; }
+.action-row .track-actions-trigger {
+	opacity: 1;
+	pointer-events: auto;
+}
 .badge-cloud { display: flex; flex-wrap: wrap; gap: 8px; }
 .playlist-track-art { width: 44px; height: 44px; overflow: hidden; border: 1px solid #262626; border-radius: 6px; background: #181818; }
 .playing-indicator { width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; gap: 3px; border: 1px solid #525252; border-radius: 999px; color: #f5f5f5; }
