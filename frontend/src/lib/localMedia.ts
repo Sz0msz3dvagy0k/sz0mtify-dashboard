@@ -180,6 +180,42 @@ export async function localImageObjectUrl(src: string | null | undefined): Promi
 	return readFileObjectUrl(image.path, image.contentType ?? 'application/octet-stream');
 }
 
+export async function nativeImageFileUri(src: string | null | undefined): Promise<string | null> {
+	if (!src || !Capacitor.isNativePlatform()) return null;
+	const key = localImageKey(src);
+	if (!key) return null;
+	const manifest = cloneManifest(await loadLocalMedia());
+	const existing = manifest.images[key];
+
+	if (existing) {
+		try {
+			await Filesystem.stat({ path: existing.path, directory: Directory.Data });
+			const uri = await Filesystem.getUri({ path: existing.path, directory: Directory.Data });
+			return uri.uri;
+		} catch {
+			delete manifest.images[key];
+		}
+	}
+
+	const response = await fetch(src, { credentials: 'include', headers: authHeaders() });
+	if (!response.ok) throw new Error(`image_fetch_failed_${response.status}`);
+	const blob = await response.blob();
+	if (!blob.size) throw new Error('image_fetch_empty');
+	const contentType = cleanContentType(response.headers.get('content-type') ?? blob.type);
+	const path = `local-media/images/${safePathSegment(key)}.${imageSuffix(contentType)}`;
+	await writeBlob(path, blob);
+	manifest.images[key] = {
+		key,
+		path,
+		contentType,
+		sizeBytes: blob.size,
+		downloadedAt: new Date().toISOString()
+	};
+	await saveManifest(manifest);
+	const uri = await Filesystem.getUri({ path, directory: Directory.Data });
+	return uri.uri;
+}
+
 export async function downloadTrack(track: QueueTrack, context: TrackDownloadContext = {}): Promise<LocalTrack> {
 	const manifest = cloneManifest(await loadLocalMedia());
 	const trackKey = String(track.id);

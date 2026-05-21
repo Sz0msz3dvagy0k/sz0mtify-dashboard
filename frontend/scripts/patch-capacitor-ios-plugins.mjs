@@ -13,6 +13,10 @@ const filesystemSources = join(
 );
 const nativeAudioIndexTypes = join(root, 'node_modules/@capgo/native-audio/dist/esm/index.d.ts');
 const nativeAudioWebTypes = join(root, 'node_modules/@capgo/native-audio/dist/esm/web.d.ts');
+const nativeAudioSwiftPlugin = join(
+	root,
+	'node_modules/@capgo/native-audio/ios/Sources/NativeAudioPlugin/Plugin.swift'
+);
 
 const patchedPreferences = `import Foundation
 import Capacitor
@@ -203,6 +207,94 @@ patchTextFile(
 	],
 	'@capgo/native-audio web TypeScript declarations'
 );
+
+function patchNativeAudioSwiftPlugin() {
+	let source;
+	try {
+		source = readFileSync(nativeAudioSwiftPlugin, 'utf8');
+	} catch {
+		return;
+	}
+
+	let patched = source;
+const rejectShim = `private extension CAPPluginCall {
+    func rejectCompat(_ message: String, _ code: String? = nil, _ error: Error? = nil, _ data: PluginCallResultData? = nil) {
+        unavailable(message)
+    }
+}
+
+`;
+	if (!patched.includes('func rejectCompat(')) {
+		patched = patched.replace('enum MyError: Error {', `${rejectShim}enum MyError: Error {`);
+	}
+	patched = patched.replace(
+		'errorHandler(CAPPluginCallError(message: message, code: code, error: error, data: data))',
+		'unavailable(message)'
+	);
+	patched = patched.replaceAll('.rejectCall(', '.rejectCompat(');
+	patched = patched.replaceAll('.reject(', '.rejectCompat(');
+	const replacements = [
+		['let debug = call.getBool("enabled") ?? false', 'let debug = call.getBool("enabled", false)'],
+		['let focus = call.getBool(Constant.FocusAudio) ?? false', 'let focus = call.getBool(Constant.FocusAudio, false)'],
+		['let background = call.getBool(Constant.Background) ?? false', 'let background = call.getBool(Constant.Background, false)'],
+		['let ignoreSilent = call.getBool(Constant.IgnoreSilent) ?? true', 'let ignoreSilent = call.getBool(Constant.IgnoreSilent, true)'],
+		[
+			'if let showNotification = call.getBool(Constant.ShowNotification) {\n            self.showNotification = showNotification\n        }',
+			'if call.options[Constant.ShowNotification] != nil {\n            self.showNotification = call.getBool(Constant.ShowNotification, false)\n        }'
+		],
+		[
+			'guard let assetId = call.getString(Constant.AssetIdKey) else {\n            call.rejectCompat("Missing assetId")\n            return\n        }',
+			'let assetId = call.getString(Constant.AssetIdKey, "")\n        if assetId.isEmpty {\n            call.rejectCompat("Missing assetId")\n            return\n        }'
+		],
+		['call.rejectCall("Missing assetId")', 'call.rejectCompat("Missing assetId")'],
+		['call.getString(Constant.AssetPathKey) ?? ""', 'call.getString(Constant.AssetPathKey, "")'],
+		['call.getString(Constant.AssetIdKey) ?? ""', 'call.getString(Constant.AssetIdKey, "")'],
+		['call.getString(Constant.AssetIdKey) ?? ""]', 'call.getString(Constant.AssetIdKey, "")]'],
+		['call.getBool("autoPlay") ?? true', 'call.getBool("autoPlay", true)'],
+		['call.getBool("deleteAfterPlay") ?? false', 'call.getBool("deleteAfterPlay", false)'],
+		['call.getBool("isUrl") ?? false', 'call.getBool("isUrl", false)'],
+		['call.getBool(Constant.FadeIn) ?? false', 'call.getBool(Constant.FadeIn, false)'],
+		['call.getBool(Constant.FadeOut) ?? false', 'call.getBool(Constant.FadeOut, false)'],
+		['call.getDouble(Constant.Time) ?? 0', 'call.getDouble(Constant.Time, 0)'],
+		['call.getDouble(Constant.Delay) ?? 0', 'call.getDouble(Constant.Delay, 0)'],
+		['call.getDouble(Constant.FadeInDuration) ?? Double(Constant.DefaultFadeDuration)', 'call.getDouble(Constant.FadeInDuration, Double(Constant.DefaultFadeDuration))'],
+		['call.getDouble(Constant.FadeOutDuration) ?? Double(Constant.DefaultFadeDuration)', 'call.getDouble(Constant.FadeOutDuration, Double(Constant.DefaultFadeDuration))'],
+		['call.getDouble(Constant.FadeOutStartTime) ?? 0.0', 'call.getDouble(Constant.FadeOutStartTime, 0.0)'],
+		['call.getDouble(Constant.FadeDuration) ?? 0.0', 'call.getDouble(Constant.FadeDuration, 0.0)'],
+		['call.getFloat("volume") ?? Constant.DefaultVolume', 'call.getFloat("volume", Constant.DefaultVolume)'],
+		['call.getFloat(Constant.Volume) ?? Constant.DefaultVolume', 'call.getFloat(Constant.Volume, Constant.DefaultVolume)'],
+		['call.getFloat(Constant.Rate) ?? Constant.DefaultRate', 'call.getFloat(Constant.Rate, Constant.DefaultRate)'],
+		['call.getInt("channels") ?? Constant.DefaultChannels', 'call.getInt("channels", Constant.DefaultChannels)'],
+		[
+			'let volume = call.getFloat(Constant.Volume)',
+			'let volume = call.options[Constant.Volume] != nil ? call.getFloat(Constant.Volume, Constant.DefaultVolume) : nil'
+		],
+		[
+			'if let metadata = call.getObject(Constant.NotificationMetadata) {',
+			'let metadata = call.getObject(Constant.NotificationMetadata, [:])\n        if !metadata.isEmpty {'
+		],
+		[
+			'if let headersObj = call.getObject("headers") {',
+			'let headersObj = call.getObject("headers", [:])\n                    if !headersObj.isEmpty {'
+		],
+		['commandCenter.skipForwardCommand.preferredIntervals = [NSNumber(value: 15)]', 'commandCenter.skipForwardCommand.preferredIntervals = []'],
+		['commandCenter.skipForwardCommand.isEnabled = true', 'commandCenter.skipForwardCommand.isEnabled = false'],
+		['commandCenter.skipBackwardCommand.preferredIntervals = [NSNumber(value: 15)]', 'commandCenter.skipBackwardCommand.preferredIntervals = []'],
+		['commandCenter.skipBackwardCommand.isEnabled = true', 'commandCenter.skipBackwardCommand.isEnabled = false'],
+		['audioQueue.sync {\n            guard !audioList.isEmpty else {', 'audioQueue.sync { [self] in\n            guard !audioList.isEmpty else {']
+	];
+
+	for (const [from, to] of replacements) {
+		patched = patched.replaceAll(from, to);
+	}
+
+	if (patched !== source) {
+		writeFileSync(nativeAudioSwiftPlugin, patched);
+		console.log('Patched @capgo/native-audio Swift source for Capacitor SwiftPM compatibility');
+	}
+}
+
+patchNativeAudioSwiftPlugin();
 
 const patchedFilesystemAccelerators = `import Capacitor
 import Foundation

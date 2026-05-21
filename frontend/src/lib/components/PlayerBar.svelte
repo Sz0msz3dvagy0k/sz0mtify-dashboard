@@ -15,6 +15,7 @@
 	import { ApiError, api } from '$lib/api';
 	import ImageWithFallback from './ImageWithFallback.svelte';
 	import { loadCachedImage } from '$lib/imageCache';
+	import { nativeImageFileUri } from '$lib/localMedia';
 	import { formatDuration } from '$lib/format';
 	import type { TrackLyrics } from '$lib/types';
 	import {
@@ -396,6 +397,7 @@
 		nativeLoadedAssetId = null;
 		nativePlayingAssetId = null;
 		if ($player.isPlaying) pendingAutoplayTrackId = trackId;
+		const artworkUrl = await nativeNotificationArtworkUrl(currentTrack);
 		await NativeAudio.preload({
 			assetId,
 			assetPath: source.assetPath,
@@ -405,7 +407,7 @@
 				title: currentTrack?.title,
 				artist: currentTrack?.artist,
 				album: currentTrack?.album,
-				artworkUrl: queueTrackImage(currentTrack) ?? undefined
+				artworkUrl
 			}
 		});
 		if (requestId !== streamRequestId || currentTrack?.id !== trackId) {
@@ -547,6 +549,17 @@
 
 	function nativeVolume(volume: number) {
 		return Math.min(Math.max(volume, 0.1), 1);
+	}
+
+	async function nativeNotificationArtworkUrl(track: NonNullable<typeof currentTrack> | null) {
+		const imageUrl = queueTrackImage(track);
+		if (!imageUrl) return undefined;
+		try {
+			return (await nativeImageFileUri(imageUrl)) ?? undefined;
+		} catch (error) {
+			console.warn('Unable to prepare native lock-screen artwork', error);
+			return undefined;
+		}
 	}
 
 	function maybeScrobbleCurrentTrack() {
