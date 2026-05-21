@@ -133,6 +133,11 @@
 		void updateMediaSessionMetadata(currentTrack);
 	}
 
+	$: if (!currentTrack && mediaSessionTrackId !== null) {
+		mediaSessionTrackId = null;
+		clearMediaSession();
+	}
+
 	$: updateMediaSessionPlaybackState();
 	$: updateMediaSessionPositionState();
 
@@ -198,6 +203,13 @@
 	async function updateMediaSessionMetadata(track: NonNullable<typeof currentTrack>) {
 		if (!browser || !('mediaSession' in navigator) || !('MediaMetadata' in window)) return;
 
+		navigator.mediaSession.metadata = new MediaMetadata({
+			title: track.title,
+			artist: track.artist,
+			album: track.album,
+			artwork: []
+		});
+
 		const artwork = await mediaSessionArtwork(track);
 		if (currentTrack?.id !== track.id) return;
 
@@ -207,6 +219,12 @@
 			album: track.album,
 			artwork
 		});
+	}
+
+	function clearMediaSession() {
+		if (!browser || !('mediaSession' in navigator)) return;
+		navigator.mediaSession.metadata = null;
+		navigator.mediaSession.playbackState = 'none';
 	}
 
 	async function mediaSessionArtwork(track: NonNullable<typeof currentTrack>): Promise<MediaImage[]> {
@@ -258,20 +276,26 @@
 			pause: () => setPlaying(false),
 			previoustrack: playPrevious,
 			nexttrack: playNext,
-			seekbackward: playPrevious,
-			seekforward: playNext,
 			seekto: (details) => {
 				if (!audio || typeof details.seekTime !== 'number') return;
 				audio.currentTime = details.seekTime;
+				const duration = displayedDuration || $player.duration || currentTrack?.duration || 0;
+				setTime(details.seekTime, duration);
 			}
 		};
 
 		for (const [action, handler] of Object.entries(handlers) as [MediaSessionAction, MediaSessionActionHandler][]) {
-			try {
-				navigator.mediaSession.setActionHandler(action, handler);
-			} catch {
-				// Ignore actions unsupported by the current browser/runtime.
-			}
+			setMediaSessionActionHandler(action, handler);
+		}
+		setMediaSessionActionHandler('seekbackward', null);
+		setMediaSessionActionHandler('seekforward', null);
+	}
+
+	function setMediaSessionActionHandler(action: MediaSessionAction, handler: MediaSessionActionHandler | null) {
+		try {
+			navigator.mediaSession.setActionHandler(action, handler);
+		} catch {
+			// Ignore actions unsupported by the current browser/runtime.
 		}
 	}
 
@@ -292,9 +316,9 @@
 		try {
 			const src = await streamUrl(trackId);
 			if (requestId !== streamRequestId || currentTrack?.id !== trackId) return;
+			if ($player.isPlaying) pendingAutoplayTrackId = trackId;
 			audio.src = src;
 			audio.load();
-			if ($player.isPlaying) pendingAutoplayTrackId = trackId;
 		} catch (error) {
 			console.warn('[player] stream load failed', { trackId, error });
 			if (requestId === streamRequestId) setPlaying(false);
@@ -386,6 +410,36 @@
 		if (pendingAutoplayTrackId && currentTrack?.id === pendingAutoplayTrackId && $player.isPlaying) {
 			void playAudio(pendingAutoplayTrackId);
 		}
+	}
+
+	function handleAudioPlay(eventName: string) {
+		logAudioEvent(eventName);
+		if (currentTrack && !$player.isPlaying) setPlaying(true);
+		updateMediaSessionPlaybackState();
+		updateMediaSessionPositionState();
+	}
+
+	function handleAudioPause() {
+		logAudioEvent('pause');
+		if (
+			currentTrack &&
+			!audio.ended &&
+			pendingAutoplayTrackId !== currentTrack.id &&
+			playRequestTrackId !== currentTrack.id &&
+			$player.isPlaying
+		) {
+			setPlaying(false);
+		}
+		updateMediaSessionPlaybackState();
+		updateMediaSessionPositionState();
+	}
+
+	function handleAudioEnded() {
+		const duration = playbackDuration(currentTrack?.duration);
+		const currentTime = duration || (Number.isFinite(audio.currentTime) ? audio.currentTime : $player.currentTime);
+		setTime(currentTime, duration);
+		syncDisplayedTime();
+		playNext();
 	}
 
 	function toggleExpanded(event: MouseEvent | KeyboardEvent) {
@@ -689,10 +743,14 @@
 		maybeScrobbleCurrentTrack();
 	}}
 	on:loadedmetadata={() => handleMediaReady('loadedmetadata')}
+	on:durationchange={() => handleMediaReady('durationchange')}
 	on:canplay={() => handleMediaReady('canplay')}
+	on:play={() => handleAudioPlay('play')}
+	on:playing={() => handleAudioPlay('playing')}
+	on:pause={handleAudioPause}
 	on:stalled={() => logAudioEvent('stalled')}
 	on:error={logAudioError}
-	on:ended={playNext}
+	on:ended={handleAudioEnded}
 ></audio>
 
 {#if currentTrack}

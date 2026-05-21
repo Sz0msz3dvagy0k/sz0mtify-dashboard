@@ -898,6 +898,12 @@ struct TrackStreamMetadata {
     suffix: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StreamResponseMode {
+    Direct,
+    Transcoded,
+}
+
 async fn fetch_track_stream(
     pool: &sqlx::SqlitePool,
     settings: &SettingsService,
@@ -1439,14 +1445,24 @@ async fn fetch_subsonic_track_stream(
     let url = format!("{}/rest/stream", cfg.base_url.trim_end_matches('/'));
     let mut query = crate::services::sync::subsonic_auth_query(&cfg);
     query.push(("id".to_string(), metadata.subsonic_id.clone()));
-    if let Some(quality) = stream_transcode_quality(pool, settings, network_type, lossless).await? {
+    let response_mode = if let Some(quality) =
+        stream_transcode_quality(pool, settings, network_type, lossless).await?
+    {
         query.push(("maxBitRate".to_string(), quality.to_string()));
         query.push(("format".to_string(), "mp3".to_string()));
-    }
+        StreamResponseMode::Transcoded
+    } else {
+        StreamResponseMode::Direct
+    };
 
     let mut request = reqwest::Client::new().get(url).query(&query);
-    for header in [RANGE, IF_RANGE, IF_NONE_MATCH, IF_MODIFIED_SINCE] {
-        if let Some(value) = request_headers.get(&header).and_then(header_value_to_str) {
+    let forwarded_headers: &[HeaderName] = if response_mode == StreamResponseMode::Direct {
+        &[RANGE, IF_RANGE, IF_NONE_MATCH, IF_MODIFIED_SINCE]
+    } else {
+        &[]
+    };
+    for header in forwarded_headers {
+        if let Some(value) = request_headers.get(header).and_then(header_value_to_str) {
             request = request.header(header.as_str(), value);
         }
     }
@@ -1465,7 +1481,7 @@ async fn fetch_subsonic_track_stream(
         StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
     if status == reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
         return Err(TrackStreamError::UpstreamRangeNotSatisfiable(
-            streaming_response(downstream_status, response, metadata),
+            streaming_response(downstream_status, response, metadata, response_mode),
         ));
     }
     if !status.is_success() && status != reqwest::StatusCode::NOT_MODIFIED {
@@ -1474,7 +1490,18 @@ async fn fetch_subsonic_track_stream(
         )));
     }
 
-    Ok(streaming_response(downstream_status, response, metadata))
+    let downstream_status = if response_mode == StreamResponseMode::Transcoded {
+        StatusCode::OK
+    } else {
+        downstream_status
+    };
+
+    Ok(streaming_response(
+        downstream_status,
+        response,
+        metadata,
+        response_mode,
+    ))
 }
 
 async fn stream_transcode_quality(
@@ -1519,32 +1546,41 @@ fn streaming_response(
     status: StatusCode,
     upstream: reqwest::Response,
     metadata: &TrackStreamMetadata,
+    mode: StreamResponseMode,
 ) -> Response {
     let mut headers = HeaderMap::new();
     copy_upstream_header(&mut headers, upstream.headers(), CONTENT_TYPE);
-    copy_upstream_header(&mut headers, upstream.headers(), CONTENT_LENGTH);
-    copy_upstream_header(&mut headers, upstream.headers(), CONTENT_RANGE);
-    copy_upstream_header(&mut headers, upstream.headers(), ACCEPT_RANGES);
-    copy_upstream_header(&mut headers, upstream.headers(), ETAG);
-    copy_upstream_header(&mut headers, upstream.headers(), LAST_MODIFIED);
+    if mode == StreamResponseMode::Direct {
+        copy_upstream_header(&mut headers, upstream.headers(), CONTENT_LENGTH);
+        copy_upstream_header(&mut headers, upstream.headers(), CONTENT_RANGE);
+        copy_upstream_header(&mut headers, upstream.headers(), ACCEPT_RANGES);
+        copy_upstream_header(&mut headers, upstream.headers(), ETAG);
+        copy_upstream_header(&mut headers, upstream.headers(), LAST_MODIFIED);
+    }
 
     if !headers.contains_key(CONTENT_TYPE) {
         headers.insert(
             CONTENT_TYPE,
-            HeaderValue::from_str(&track_content_type(metadata))
+            HeaderValue::from_str(&stream_content_type(metadata, mode))
                 .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
         );
     }
-    if !headers.contains_key(ACCEPT_RANGES) {
+    if mode == StreamResponseMode::Transcoded {
+        headers.insert(ACCEPT_RANGES, HeaderValue::from_static("none"));
+    } else if !headers.contains_key(ACCEPT_RANGES) {
         headers.insert(ACCEPT_RANGES, HeaderValue::from_static("bytes"));
     }
     headers.insert(
         CACHE_CONTROL,
-        HeaderValue::from_static("private, max-age=86400"),
+        if mode == StreamResponseMode::Transcoded {
+            HeaderValue::from_static("private, no-store")
+        } else {
+            HeaderValue::from_static("private, max-age=86400")
+        },
     );
     if let Ok(disposition) = HeaderValue::from_str(&format!(
         "inline; filename=\"{}\"",
-        quoted_filename(&metadata.title, metadata.suffix.as_deref())
+        quoted_filename(&metadata.title, stream_suffix(metadata, mode))
     )) {
         headers.insert(CONTENT_DISPOSITION, disposition);
     }
@@ -1592,6 +1628,25 @@ fn track_content_type(metadata: &TrackStreamMetadata) -> String {
         .as_deref()
         .and_then(non_empty_owned)
         .unwrap_or_else(|| content_type_for_suffix(metadata.suffix.as_deref()))
+}
+
+fn stream_content_type(metadata: &TrackStreamMetadata, mode: StreamResponseMode) -> String {
+    if mode == StreamResponseMode::Transcoded {
+        "audio/mpeg".to_string()
+    } else {
+        track_content_type(metadata)
+    }
+}
+
+fn stream_suffix<'a>(
+    metadata: &'a TrackStreamMetadata,
+    mode: StreamResponseMode,
+) -> Option<&'a str> {
+    if mode == StreamResponseMode::Transcoded {
+        Some("mp3")
+    } else {
+        metadata.suffix.as_deref()
+    }
 }
 
 fn content_type_for_suffix(suffix: Option<&str>) -> String {
@@ -2126,6 +2181,96 @@ mod tests {
             .unwrap();
 
         assert_eq!(&body[..], b"mp3");
+    }
+
+    #[tokio::test]
+    async fn track_stream_ignores_ranges_and_unstable_length_for_transcoding() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buffer = [0_u8; 4096];
+            let read = socket.read(&mut buffer).await.unwrap();
+            let request = String::from_utf8_lossy(&buffer[..read]);
+            assert!(request.starts_with("GET /rest/stream?"));
+            assert!(request.contains("id=subsonic-track"));
+            assert!(request.contains("maxBitRate=128"));
+            assert!(request.contains("format=mp3"));
+            assert!(!request.contains("\r\nrange:"));
+            assert!(!request.contains("\r\nRange:"));
+
+            let body = b"transcoded-mp3";
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nAccept-Ranges: bytes\r\n\r\n{}",
+                body.len(),
+                String::from_utf8_lossy(body)
+            );
+            socket.write_all(response.as_bytes()).await.unwrap();
+        });
+
+        let pool = test_pool().await;
+        sqlx::query(
+            "INSERT INTO settings(key,value) VALUES
+             ('subsonic_base_url', ?),
+             ('subsonic_username', 'user'),
+             ('subsonic_password', 'pass'),
+             ('stream_transcode_mode', 'cellular'),
+             ('stream_transcode_quality', '128')",
+        )
+        .bind(format!("http://{addr}"))
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO tracks(id,subsonic_id,title,content_type,suffix)
+             VALUES(1,'subsonic-track','Song','audio/flac','flac')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let mut request_headers = HeaderMap::new();
+        request_headers.insert(RANGE, HeaderValue::from_static("bytes=500-"));
+
+        let settings = SettingsService;
+        let response = fetch_track_stream(
+            &pool,
+            &settings,
+            1,
+            Some("cellular"),
+            false,
+            &request_headers,
+        )
+        .await
+        .unwrap();
+        server.await.unwrap();
+        let status = response.status();
+        let headers = response.headers().clone();
+        let body = axum::body::to_bytes(response.into_body(), 1024)
+            .await
+            .unwrap();
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            headers
+                .get(CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok()),
+            Some("audio/mpeg")
+        );
+        assert_eq!(
+            headers
+                .get(ACCEPT_RANGES)
+                .and_then(|value| value.to_str().ok()),
+            Some("none")
+        );
+        assert!(!headers.contains_key(CONTENT_LENGTH));
+        assert!(!headers.contains_key(CONTENT_RANGE));
+        assert_eq!(
+            headers
+                .get(CACHE_CONTROL)
+                .and_then(|value| value.to_str().ok()),
+            Some("private, no-store")
+        );
+        assert_eq!(&body[..], b"transcoded-mp3");
     }
 
     #[tokio::test]
