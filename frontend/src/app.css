@@ -906,8 +906,9 @@ tr:focus-within .track-actions-trigger,
 	overflow: auto;
 	padding: 6px 10px 6px 0;
 	scroll-padding-block: 48%;
-	scrollbar-width: thin;
+	scrollbar-width: none;
 }
+.lyrics-lines::-webkit-scrollbar { display: none; }
 .lyrics-lines p {
 	margin: 0 0 18px;
 	color: #d4d4d4;
