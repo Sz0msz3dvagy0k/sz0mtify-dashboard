@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
+	import { page } from '$app/stores';
 	import { onDestroy, onMount, tick } from 'svelte';
 	import { NativeAudio, type PlaybackStateValue } from '@capgo/native-audio';
 	import type { PluginListenerHandle } from '@capacitor/core';
@@ -79,6 +80,7 @@
 	let lyricsRequestId = 0;
 	let lyricsLinesElement: HTMLDivElement | null = null;
 	let lastScrolledLyricIndex = -1;
+	let activeRoutePath = '';
 	$: currentTrack = $player.queue[$player.currentIndex] ?? null;
 	$: previousTrack = $player.currentIndex > 0 ? $player.queue[$player.currentIndex - 1] : null;
 	$: nextTrack = $player.currentIndex < $player.queue.length - 1 ? $player.queue[$player.currentIndex + 1] : null;
@@ -129,6 +131,12 @@
 	$: if (lyricsOpen && lyrics?.synced && activeLyricIndex >= 0 && activeLyricIndex !== lastScrolledLyricIndex) {
 		lastScrolledLyricIndex = activeLyricIndex;
 		void scrollActiveLyricLine(activeLyricIndex);
+	}
+
+	$: if (browser && $page.url.pathname !== activeRoutePath) {
+		const hadRoute = activeRoutePath !== '';
+		activeRoutePath = $page.url.pathname;
+		if (hadRoute) collapseExpandedPlayer();
 	}
 
 	$: if ($player.isPlaying) {
@@ -647,6 +655,14 @@
 		}
 		if (isPlayerControlTarget(event.target)) return;
 		expanded = true;
+	}
+
+	function collapseExpandedPlayer() {
+		expanded = false;
+		playerDragMode = null;
+		playerDragOffset = 0;
+		playerSwipeOffset = 0;
+		suppressNextPlayerClick = false;
 	}
 
 	function handlePlayerPointerDown(event: PointerEvent) {
