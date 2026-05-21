@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api';
 	import type { AlbumTuple, ArtistTuple, StorageStats } from '$lib/types';
@@ -14,13 +15,27 @@
 	import StatCard from '$lib/components/StatCard.svelte';
 	import { formatBytes, formatNumber } from '$lib/format';
 
+	const albumSortStorageKey = 'archive.albums.sort';
+	const albumSortOptions = new Set([
+		'title',
+		'title-desc',
+		'artist',
+		'year-new',
+		'year-old',
+		'date-added-new',
+		'date-added-old',
+		'genre',
+		'size',
+		'tracks'
+	]);
+
 	let albums: AlbumTuple[] = [];
 	let artists: ArtistTuple[] = [];
 	let storage: StorageStats | null = null;
 	let loading = true;
 	let error = '';
 	let filter = '';
-	let sort = 'title';
+	let sort = storedAlbumSort();
 	let itemsPerPage = 18;
 	let page = 1;
 
@@ -105,6 +120,17 @@
 		if (!bTime) return -1;
 		return aTime - bTime || a[0] - b[0] || a[1].localeCompare(b[1]);
 	}
+
+	function storedAlbumSort() {
+		if (!browser) return 'title';
+		const value = localStorage.getItem(albumSortStorageKey);
+		return value && albumSortOptions.has(value) ? value : 'title';
+	}
+
+	function rememberAlbumSort() {
+		if (!browser) return;
+		localStorage.setItem(albumSortStorageKey, sort);
+	}
 </script>
 
 {#if loading}
@@ -120,7 +146,7 @@
 
 	<div class="toolbar">
 		<FilterBar bind:value={filter} placeholder="Filter albums, artists, genres" />
-		<select bind:value={sort}>
+		<select bind:value={sort} on:change={rememberAlbumSort}>
 			<option value="title">Title A-Z</option>
 			<option value="title-desc">Title Z-A</option>
 			<option value="artist">Artist</option>
