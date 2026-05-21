@@ -11,6 +11,8 @@ const filesystemSources = join(
 	root,
 	'node_modules/@capacitor/filesystem/ios/Sources/FilesystemPlugin'
 );
+const nativeAudioIndexTypes = join(root, 'node_modules/@capgo/native-audio/dist/esm/index.d.ts');
+const nativeAudioWebTypes = join(root, 'node_modules/@capgo/native-audio/dist/esm/web.d.ts');
 
 const patchedPreferences = `import Foundation
 import Capacitor
@@ -163,6 +165,44 @@ function patchFile(path, patched, marker, label) {
 }
 
 patchFile(preferencesPlugin, patchedPreferences, 'public class PreferencesPlugin', '@capacitor/preferences iOS source');
+
+function patchTextFile(path, replacements, label) {
+	let source;
+	try {
+		source = readFileSync(path, 'utf8');
+	} catch {
+		return;
+	}
+
+	let patched = source;
+	for (const [from, to] of replacements) {
+		patched = patched.replace(from, to);
+	}
+	if (patched !== source) {
+		writeFileSync(path, patched);
+		console.log(`Patched ${label}`);
+	}
+}
+
+patchTextFile(
+	nativeAudioIndexTypes,
+	[
+		["import { NativeAudio } from './definitions';", "import type { NativeAudio as NativeAudioPlugin } from './definitions';"],
+		["import type { NativeAudio } from './definitions';", "import type { NativeAudio as NativeAudioPlugin } from './definitions';"],
+		['declare const NativeAudio: NativeAudio;', 'declare const NativeAudio: NativeAudioPlugin;']
+	],
+	'@capgo/native-audio TypeScript declarations'
+);
+patchTextFile(
+	nativeAudioWebTypes,
+	[
+		["import { NativeAudio } from './definitions';", "import type { NativeAudio as NativeAudioPlugin } from './definitions';"],
+		["import type { NativeAudio } from './definitions';", "import type { NativeAudio as NativeAudioPlugin } from './definitions';"],
+		['export declare class NativeAudioWeb extends WebPlugin implements NativeAudio {', 'export declare class NativeAudioWeb extends WebPlugin implements NativeAudioPlugin {'],
+		['declare const NativeAudio: NativeAudioWeb;', 'declare const NativeAudio: NativeAudioWeb;']
+	],
+	'@capgo/native-audio web TypeScript declarations'
+);
 
 const patchedFilesystemAccelerators = `import Capacitor
 import Foundation

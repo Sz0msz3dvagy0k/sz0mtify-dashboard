@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { onDestroy, onMount, tick } from 'svelte';
+	import { NativeAudio, type PlaybackStateValue } from '@capgo/native-audio';
+	import type { PluginListenerHandle } from '@capacitor/core';
 	import {
 		ChevronsLeft,
 		ChevronsRight,
@@ -17,6 +19,7 @@
 	import type { TrackLyrics } from '$lib/types';
 	import {
 		closeQueue,
+		nativeLosslessAudioSource,
 		playIndex,
 		playNext,
 		playPrevious,
@@ -26,6 +29,7 @@
 		setPlaying,
 		setTime,
 		setVolume,
+		shouldUseNativeAudio,
 		streamUrl,
 		togglePlay,
 		toggleQueue
@@ -56,6 +60,13 @@
 	let playRequestTrackId: number | null = null;
 	let streamRequestId = 0;
 	let progressAnimationFrame: number | null = null;
+	let nativeAudioEnabled = false;
+	let nativeAudioInitialized = false;
+	let nativeLoadedAssetId: string | null = null;
+	let nativePlayingAssetId: string | null = null;
+	let nativeCurrentTimeHandle: PluginListenerHandle | null = null;
+	let nativeCompleteHandle: PluginListenerHandle | null = null;
+	let nativePlaybackStateHandle: PluginListenerHandle | null = null;
 	let displayedTrackId: number | null = null;
 	let displayedCurrentTime = 0;
 	let displayedDuration = 0;
@@ -81,7 +92,9 @@
 		: '';
 	$: swipeTrackStyle = `transform: translate3d(${Math.round(playerSwipeOffset)}px, 0, 0);`;
 
-	$: if (audio && currentTrack && currentTrack.id !== lastTrackId) {
+	$: playbackReady = nativeAudioEnabled ? nativeAudioInitialized : Boolean(audio);
+
+	$: if (playbackReady && currentTrack && currentTrack.id !== lastTrackId) {
 		lastTrackId = currentTrack.id;
 		scrobbledTrackId = null;
 		lastScrobbleAttemptTrackId = null;
@@ -89,8 +102,12 @@
 		void loadTrackStream(currentTrack.id, ++streamRequestId);
 	}
 
-	$: if (audio && Math.abs(audio.volume - $player.volume) > 0.01) {
+	$: if (!nativeAudioEnabled && audio && Math.abs(audio.volume - $player.volume) > 0.01) {
 		audio.volume = $player.volume;
+	}
+
+	$: if (nativeAudioEnabled && currentTrack && nativeLoadedAssetId === nativeAssetId(currentTrack.id)) {
+		void setNativeVolume(nativeLoadedAssetId, $player.volume);
 	}
 
 	$: if (currentTrack?.id !== displayedTrackId) {
@@ -120,11 +137,25 @@
 		syncDisplayedTime();
 	}
 
-	$: if (audio && currentTrack && $player.isPlaying && audio.paused && audio.readyState >= HTMLMediaElement.HAVE_METADATA) {
+	$: if (
+		nativeAudioEnabled &&
+		currentTrack &&
+		$player.isPlaying &&
+		nativeLoadedAssetId === nativeAssetId(currentTrack.id) &&
+		nativePlayingAssetId !== nativeLoadedAssetId
+	) {
 		void playAudio(currentTrack.id);
 	}
 
-	$: if (audio && !$player.isPlaying && !audio.paused) {
+	$: if (!nativeAudioEnabled && audio && currentTrack && $player.isPlaying && audio.paused && audio.readyState >= HTMLMediaElement.HAVE_METADATA) {
+		void playAudio(currentTrack.id);
+	}
+
+	$: if (nativeAudioEnabled && !$player.isPlaying && nativePlayingAssetId) {
+		void pauseNativeAudio(nativePlayingAssetId);
+	}
+
+	$: if (!nativeAudioEnabled && audio && !$player.isPlaying && !audio.paused) {
 		audio.pause();
 	}
 
@@ -144,15 +175,37 @@
 	function seek(event: Event) {
 		const value = Number((event.target as HTMLInputElement).value);
 		const duration = displayedDuration || $player.duration || currentTrack?.duration || 0;
-		if (!audio || !duration) return;
+		if (!duration) return;
 		const nextTime = (value / 100) * duration;
-		audio.currentTime = nextTime;
+		void seekToTime(nextTime).catch((error) => {
+			console.warn('[player] seek failed', { trackId: currentTrack?.id ?? null, error });
+		});
+	}
+
+	async function seekToTime(nextTime: number) {
+		const duration = displayedDuration || $player.duration || currentTrack?.duration || 0;
+		if (!duration) return;
+		if (nativeAudioEnabled) {
+			const assetId = currentTrack ? nativeAssetId(currentTrack.id) : null;
+			if (!assetId || nativeLoadedAssetId !== assetId) return;
+			await NativeAudio.setCurrentTime({ assetId, time: nextTime });
+		} else {
+			if (!audio) return;
+			audio.currentTime = nextTime;
+		}
 		displayedCurrentTime = nextTime;
 		setTime(nextTime, duration);
 		updateProgressControl();
+		updateMediaSessionPositionState();
 	}
 
 	function syncDisplayedTime() {
+		if (nativeAudioEnabled) {
+			displayedCurrentTime = $player.currentTime;
+			displayedDuration = $player.duration || currentTrack?.duration || 0;
+			updateProgressControl();
+			return;
+		}
 		const audioTime = audio && Number.isFinite(audio.currentTime) ? audio.currentTime : null;
 		const audioDuration = audio && Number.isFinite(audio.duration) ? audio.duration : null;
 		displayedCurrentTime = audioTime ?? $player.currentTime;
@@ -201,6 +254,7 @@
 	}
 
 	async function updateMediaSessionMetadata(track: NonNullable<typeof currentTrack>) {
+		if (nativeAudioEnabled) return;
 		if (!browser || !('mediaSession' in navigator) || !('MediaMetadata' in window)) return;
 
 		navigator.mediaSession.metadata = new MediaMetadata({
@@ -222,6 +276,7 @@
 	}
 
 	function clearMediaSession() {
+		if (nativeAudioEnabled) return;
 		if (!browser || !('mediaSession' in navigator)) return;
 		navigator.mediaSession.metadata = null;
 		navigator.mediaSession.playbackState = 'none';
@@ -245,6 +300,7 @@
 	}
 
 	function updateMediaSessionPlaybackState() {
+		if (nativeAudioEnabled) return;
 		if (!browser || !('mediaSession' in navigator)) return;
 		navigator.mediaSession.playbackState = currentTrack
 			? $player.isPlaying
@@ -254,6 +310,7 @@
 	}
 
 	function updateMediaSessionPositionState() {
+		if (nativeAudioEnabled) return;
 		if (!browser || !('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return;
 		const duration = $player.duration || currentTrack?.duration || 0;
 		if (!currentTrack || !Number.isFinite(duration) || duration <= 0) return;
@@ -270,6 +327,7 @@
 	}
 
 	function registerMediaSessionHandlers() {
+		if (nativeAudioEnabled) return;
 		if (!browser || !('mediaSession' in navigator)) return;
 		const handlers: Partial<Record<MediaSessionAction, MediaSessionActionHandler>> = {
 			play: () => setPlaying(true),
@@ -314,6 +372,10 @@
 
 	async function loadTrackStream(trackId: number, requestId: number) {
 		try {
+			if (nativeAudioEnabled) {
+				await loadNativeTrackStream(trackId, requestId);
+				return;
+			}
 			const src = await streamUrl(trackId);
 			if (requestId !== streamRequestId || currentTrack?.id !== trackId) return;
 			if ($player.isPlaying) pendingAutoplayTrackId = trackId;
@@ -325,8 +387,47 @@
 		}
 	}
 
+	async function loadNativeTrackStream(trackId: number, requestId: number) {
+		const assetId = nativeAssetId(trackId);
+		const source = await nativeLosslessAudioSource(trackId);
+		if (requestId !== streamRequestId || currentTrack?.id !== trackId) return;
+
+		await unloadNativeAsset(nativeLoadedAssetId);
+		nativeLoadedAssetId = null;
+		nativePlayingAssetId = null;
+		if ($player.isPlaying) pendingAutoplayTrackId = trackId;
+		await NativeAudio.preload({
+			assetId,
+			assetPath: source.assetPath,
+			isUrl: source.isUrl,
+			volume: nativeVolume($player.volume),
+			notificationMetadata: {
+				title: currentTrack?.title,
+				artist: currentTrack?.artist,
+				album: currentTrack?.album,
+				artworkUrl: queueTrackImage(currentTrack) ?? undefined
+			}
+		});
+		if (requestId !== streamRequestId || currentTrack?.id !== trackId) {
+			await unloadNativeAsset(assetId);
+			return;
+		}
+
+		nativeLoadedAssetId = assetId;
+		const duration = await NativeAudio.getDuration({ assetId }).then((result) => result.duration).catch(() => currentTrack?.duration ?? 0);
+		setTime(0, duration || currentTrack?.duration || 0);
+		syncDisplayedTime();
+		if (pendingAutoplayTrackId === trackId && $player.isPlaying) {
+			await playAudio(trackId);
+		}
+	}
+
 	async function playAudio(trackId: number) {
 		if (playRequestTrackId === trackId || currentTrack?.id !== trackId) return;
+		if (nativeAudioEnabled) {
+			await playNativeAudio(trackId);
+			return;
+		}
 		if (audio.readyState < HTMLMediaElement.HAVE_METADATA) {
 			pendingAutoplayTrackId = trackId;
 			return;
@@ -366,14 +467,97 @@
 		}
 	}
 
+	async function playNativeAudio(trackId: number) {
+		const assetId = nativeAssetId(trackId);
+		if (nativeLoadedAssetId !== assetId) {
+			pendingAutoplayTrackId = trackId;
+			return;
+		}
+
+		playRequestTrackId = trackId;
+		try {
+			const currentTime = $player.currentTime > 0 ? $player.currentTime : undefined;
+			if (nativePlayingAssetId === assetId) {
+				await NativeAudio.resume({ assetId });
+			} else {
+				await NativeAudio.play({ assetId, time: currentTime, volume: nativeVolume($player.volume) });
+			}
+			nativePlayingAssetId = assetId;
+			pendingAutoplayTrackId = null;
+			if (registeredTrackId !== trackId) {
+				await api
+					.nowPlaying(trackId)
+					.then(() => {
+						registeredTrackId = trackId;
+					})
+					.catch((error) => {
+						console.warn('Unable to register now playing', error);
+					});
+			}
+			if (currentTrack?.id === trackId) recordSongHistory(currentTrack);
+			updateMediaSessionPlaybackState();
+		} catch (error) {
+			console.warn('[player] native audio play failed', { trackId, error });
+			if (currentTrack?.id === trackId) {
+				pendingAutoplayTrackId = null;
+				setPlaying(false);
+			}
+		} finally {
+			if (playRequestTrackId === trackId) playRequestTrackId = null;
+		}
+	}
+
+	async function pauseNativeAudio(assetId: string) {
+		try {
+			await NativeAudio.pause({ assetId });
+		} catch (error) {
+			console.warn('[player] native audio pause failed', { assetId, error });
+		} finally {
+			if (nativePlayingAssetId === assetId) nativePlayingAssetId = null;
+			updateMediaSessionPlaybackState();
+			updateMediaSessionPositionState();
+		}
+	}
+
+	async function unloadNativeAsset(assetId: string | null) {
+		if (!assetId) return;
+		try {
+			await NativeAudio.stop({ assetId });
+		} catch (error) {
+			debugPlayer('[player] native audio stop before unload failed', { assetId, error });
+		}
+		try {
+			await NativeAudio.unload({ assetId });
+		} catch (error) {
+			console.warn('[player] native audio unload failed', { assetId, error });
+		}
+	}
+
+	async function setNativeVolume(assetId: string, volume: number) {
+		try {
+			await NativeAudio.setVolume({ assetId, volume: nativeVolume(volume) });
+		} catch (error) {
+			console.warn('[player] native audio volume update failed', { assetId, error });
+		}
+	}
+
+	function nativeAssetId(trackId: number) {
+		return `track-${trackId}`;
+	}
+
+	function nativeVolume(volume: number) {
+		return Math.min(Math.max(volume, 0.1), 1);
+	}
+
 	function maybeScrobbleCurrentTrack() {
-		if (!audio || !currentTrack || !$player.isPlaying || audio.paused) return;
+		if (!currentTrack || !$player.isPlaying) return;
+		if (!nativeAudioEnabled && (!audio || audio.paused)) return;
 		const trackId = currentTrack.id;
 		if (scrobbledTrackId === trackId || scrobbleRequestTrackId === trackId) return;
 		if (lastScrobbleAttemptTrackId === trackId && Date.now() - lastScrobbleAttemptAt < 60_000) return;
 
 		const duration = playbackDuration(currentTrack.duration);
-		const currentTime = Number.isFinite(audio.currentTime) ? audio.currentTime : $player.currentTime;
+		const currentTime = !nativeAudioEnabled && audio && Number.isFinite(audio.currentTime) ? audio.currentTime : $player.currentTime;
 		if (currentTime < scrobbleThreshold(duration)) return;
 
 		scrobbleRequestTrackId = trackId;
@@ -393,6 +577,7 @@
 	}
 
 	function playbackDuration(fallback: number | null | undefined) {
+		if (nativeAudioEnabled && $player.duration > 0) return $player.duration;
 		if (audio && Number.isFinite(audio.duration) && audio.duration > 0) return audio.duration;
 		if ($player.duration > 0) return $player.duration;
 		return fallback && fallback > 0 ? fallback : 0;
@@ -674,6 +859,66 @@
 		});
 	}
 
+	async function initializeNativeAudio() {
+		if (!nativeAudioEnabled || nativeAudioInitialized) return;
+
+		try {
+			await NativeAudio.configure({
+				focus: true,
+				background: true,
+				ignoreSilent: true,
+				showNotification: true
+			});
+			nativeCurrentTimeHandle = await NativeAudio.addListener('currentTime', (event) => {
+				if (event.assetId !== nativeLoadedAssetId) return;
+				const duration = $player.duration || currentTrack?.duration || 0;
+				setTime(event.currentTime, duration);
+				syncDisplayedTime();
+				maybeScrobbleCurrentTrack();
+				updateMediaSessionPositionState();
+			});
+			nativeCompleteHandle = await NativeAudio.addListener('complete', (event) => {
+				if (event.assetId !== nativeLoadedAssetId) return;
+				handleNativeAudioEnded();
+			});
+			nativePlaybackStateHandle = await NativeAudio.addListener('playbackState', (event) => {
+				if (event.assetId !== nativeLoadedAssetId) return;
+				handleNativePlaybackState(event.state, event.currentTime, event.duration);
+			});
+			nativeAudioInitialized = true;
+		} catch (error) {
+			nativeAudioEnabled = false;
+			nativeAudioInitialized = false;
+			console.warn('[player] native audio unavailable, falling back to WebView audio', error);
+		}
+	}
+
+	function handleNativePlaybackState(state: PlaybackStateValue, currentTime?: number, duration?: number) {
+		if (typeof currentTime === 'number') {
+			setTime(currentTime, typeof duration === 'number' ? duration : $player.duration || currentTrack?.duration || 0);
+			syncDisplayedTime();
+		}
+		if (state === 'playing' && currentTrack && !$player.isPlaying) {
+			nativePlayingAssetId = nativeLoadedAssetId;
+			setPlaying(true);
+		}
+		if ((state === 'paused' || state === 'stopped') && nativePlayingAssetId) {
+			nativePlayingAssetId = null;
+			if ($player.isPlaying) setPlaying(false);
+		}
+		updateMediaSessionPlaybackState();
+		updateMediaSessionPositionState();
+	}
+
+	function handleNativeAudioEnded() {
+		const duration = playbackDuration(currentTrack?.duration);
+		const currentTime = duration || $player.currentTime;
+		nativePlayingAssetId = null;
+		setTime(currentTime, duration);
+		syncDisplayedTime();
+		playNext();
+	}
+
 	function logAudioEvent(eventName: string) {
 		debugPlayer(`[player] audio ${eventName}`, {
 			trackId: currentTrack?.id ?? null,
@@ -724,34 +969,48 @@
 	}
 
 	onMount(() => {
+		nativeAudioEnabled = shouldUseNativeAudio();
+		if (nativeAudioEnabled) lastTrackId = null;
+		void initializeNativeAudio();
 		if (audio) audio.volume = $player.volume;
 		syncDisplayedTime();
 		registerMediaSessionHandlers();
+		if (currentTrack) void updateMediaSessionMetadata(currentTrack);
+		updateMediaSessionPlaybackState();
+		updateMediaSessionPositionState();
 	});
 
-	onDestroy(stopProgressAnimation);
+	onDestroy(() => {
+		stopProgressAnimation();
+		void nativeCurrentTimeHandle?.remove();
+		void nativeCompleteHandle?.remove();
+		void nativePlaybackStateHandle?.remove();
+		void unloadNativeAsset(nativeLoadedAssetId);
+	});
 </script>
 
 <svelte:window on:keydown={handleGlobalKeydown} on:pointerdown|capture={handleGlobalPointerDown} />
 
-<audio
-	bind:this={audio}
-	crossorigin="use-credentials"
-	on:timeupdate={() => {
-		setTime(audio.currentTime, audio.duration);
-		syncDisplayedTime();
-		maybeScrobbleCurrentTrack();
-	}}
-	on:loadedmetadata={() => handleMediaReady('loadedmetadata')}
-	on:durationchange={() => handleMediaReady('durationchange')}
-	on:canplay={() => handleMediaReady('canplay')}
-	on:play={() => handleAudioPlay('play')}
-	on:playing={() => handleAudioPlay('playing')}
-	on:pause={handleAudioPause}
-	on:stalled={() => logAudioEvent('stalled')}
-	on:error={logAudioError}
-	on:ended={handleAudioEnded}
-></audio>
+{#if !nativeAudioEnabled}
+	<audio
+		bind:this={audio}
+		crossorigin="use-credentials"
+		on:timeupdate={() => {
+			setTime(audio.currentTime, audio.duration);
+			syncDisplayedTime();
+			maybeScrobbleCurrentTrack();
+		}}
+		on:loadedmetadata={() => handleMediaReady('loadedmetadata')}
+		on:durationchange={() => handleMediaReady('durationchange')}
+		on:canplay={() => handleMediaReady('canplay')}
+		on:play={() => handleAudioPlay('play')}
+		on:playing={() => handleAudioPlay('playing')}
+		on:pause={handleAudioPause}
+		on:stalled={() => logAudioEvent('stalled')}
+		on:error={logAudioError}
+		on:ended={handleAudioEnded}
+	></audio>
+{/if}
 
 {#if currentTrack}
 	<div

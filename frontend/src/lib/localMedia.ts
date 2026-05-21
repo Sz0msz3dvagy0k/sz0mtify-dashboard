@@ -143,11 +143,19 @@ export async function localTrackUrl(trackId: number): Promise<string | null> {
 	if (!track || !(await hasLocalMedia(trackId))) return null;
 
 	if (Capacitor.isNativePlatform()) {
-		const uri = await Filesystem.getUri({ path: track.filePath, directory: Directory.Data });
-		return Capacitor.convertFileSrc(uri.uri);
+		const uri = await localTrackNativeUri(trackId);
+		return uri ? Capacitor.convertFileSrc(uri) : null;
 	}
 
 	return readFileObjectUrl(track.filePath, track.contentType ?? 'application/octet-stream');
+}
+
+export async function localTrackNativeUri(trackId: number): Promise<string | null> {
+	const manifest = await loadLocalMedia();
+	const track = manifest.tracks[String(trackId)];
+	if (!track || !(await hasLocalMedia(trackId))) return null;
+	const uri = await Filesystem.getUri({ path: track.filePath, directory: Directory.Data });
+	return uri.uri;
 }
 
 export async function localImageObjectUrl(src: string | null | undefined): Promise<string | null> {

@@ -1,9 +1,10 @@
 import { writable } from 'svelte/store';
 import { browser } from '$app/environment';
+import { Capacitor } from '@capacitor/core';
 import { withStreamToken } from '$lib/auth';
 import { api } from '$lib/api';
 import { apiBase, coverUrl } from '$lib/format';
-import { localTrackUrl } from '$lib/localMedia';
+import { localTrackNativeUri, localTrackUrl } from '$lib/localMedia';
 import { currentNetworkType } from '$lib/mobileNetwork';
 
 export type QueueTrack = {
@@ -180,6 +181,25 @@ export async function streamUrl(trackId: number, options: { lossless?: boolean }
 	if (options.lossless) params.set('lossless', '1');
 	const query = params.toString();
 	return withStreamToken(`${apiBase()}/api/tracks/${trackId}/stream${query ? `?${query}` : ''}`, token);
+}
+
+export async function nativeLosslessAudioSource(trackId: number) {
+	const localUri = await localTrackNativeUri(trackId);
+	if (localUri) {
+		return {
+			assetPath: localUri,
+			isUrl: true
+		};
+	}
+
+	return {
+		assetPath: await streamUrl(trackId, { lossless: true }),
+		isUrl: true
+	};
+}
+
+export function shouldUseNativeAudio() {
+	return browser && Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'ios';
 }
 
 export function queueTrackImage(track: QueueTrack | null | undefined) {
