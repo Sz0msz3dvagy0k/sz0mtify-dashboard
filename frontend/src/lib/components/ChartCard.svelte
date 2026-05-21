@@ -36,7 +36,7 @@
 	function baseOption(input: EChartsCoreOption): EChartsCoreOption {
 		return {
 			backgroundColor: 'transparent',
-			textStyle: { color: '#d4d4d4', fontFamily: 'Inter, system-ui' },
+			textStyle: { color: '#d4d4d4', fontFamily: 'Sora Local, system-ui' },
 			tooltip: {
 				backgroundColor: '#f5f5f5',
 				borderColor: '#f5f5f5',

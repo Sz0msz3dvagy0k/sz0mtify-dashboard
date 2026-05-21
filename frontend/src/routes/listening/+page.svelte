@@ -67,11 +67,11 @@
 		</div>
 		<div>
 			<SectionHeader title="Current Rotation" eyebrow="recent weighting" />
-			<div class="panel-list">{#each rotation.slice(0, 12) as track}<TrackRow title={track[1]} detail={track[2] ?? ''} count={track[4] ?? 0} href={trackHref(track[0])} />{/each}</div>
+			<div class="panel-list">{#each rotation.slice(0, 12) as track}<TrackRow title={track[1]} detail={track[2] ?? ''} detailClass="artist-name" count={track[4] ?? 0} href={trackHref(track[0])} />{/each}</div>
 		</div>
 	</section>
 	<section>
 		<SectionHeader title="Rediscovery Candidates" eyebrow="deep cuts" />
-		<div class="panel-list">{#each rediscovery.tracks.slice(0, 10) as track}<TrackRow title={track[1]} detail={track[5] ?? ''} count={track[4]} href={trackHref(track[0])} />{/each}</div>
+		<div class="panel-list">{#each rediscovery.tracks.slice(0, 10) as track}<TrackRow title={track[1]} detail={track[5] ?? ''} detailClass="artist-name" count={track[4]} href={trackHref(track[0])} />{/each}</div>
 	</section>
 {/if}

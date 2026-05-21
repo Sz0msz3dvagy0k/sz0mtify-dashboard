@@ -137,9 +137,9 @@
 			<h2>{track[1]}</h2>
 			<div class="track-meta-links">
 				{#if track[2]}
-					<a href={`/artists/${track[2]}`}>{track[3] ?? 'Unknown artist'}</a>
+					<a class="artist-name" href={`/artists/${track[2]}`}>{track[3] ?? 'Unknown artist'}</a>
 				{:else}
-					<span>{track[3] ?? 'Unknown artist'}</span>
+					<span class="artist-name">{track[3] ?? 'Unknown artist'}</span>
 				{/if}
 				<span>•</span>
 				{#if track[4]}

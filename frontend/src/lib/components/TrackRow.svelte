@@ -5,13 +5,14 @@
 	export let duration: number | null = null;
 	export let count: number | null = null;
 	export let href: string | null = null;
+	export let detailClass = '';
 </script>
 
 {#if href}
 	<a class="track-row" {href}>
 		<div>
 			<strong>{title}</strong>
-			{#if detail}<span>{detail}</span>{/if}
+			{#if detail}<span class={detailClass}>{detail}</span>{/if}
 		</div>
 		<em>{count !== null ? formatNumber(count) : formatDuration(duration)}</em>
 	</a>
@@ -19,7 +20,7 @@
 	<div class="track-row">
 		<div>
 			<strong>{title}</strong>
-			{#if detail}<span>{detail}</span>{/if}
+			{#if detail}<span class={detailClass}>{detail}</span>{/if}
 		</div>
 		<em>{count !== null ? formatNumber(count) : formatDuration(duration)}</em>
 	</div>

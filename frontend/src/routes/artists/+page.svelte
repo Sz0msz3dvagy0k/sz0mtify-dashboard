@@ -44,6 +44,7 @@
 	$: storageArtistTableRows = storageArtistRows.map((row, index) => ({
 		id: row[0] ?? `artist-${index}`,
 		title: row[1] ?? 'Unknown artist',
+		titleClass: 'artist-name',
 		href: row[0] ? `/artists/${row[0]}` : null,
 		details: [
 			['Storage', formatBytes(row[2])],

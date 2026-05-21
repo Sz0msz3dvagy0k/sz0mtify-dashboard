@@ -5,6 +5,7 @@
 		id: string | number;
 		title: string;
 		href?: string | null;
+		titleClass?: string;
 		details: [string, string | number | null | undefined][];
 	};
 
@@ -29,9 +30,9 @@
 		<article class:open={openRows.has(row.id)}>
 			<div class="expandable-table-main">
 				{#if row.href}
-					<a class="table-link" href={row.href}>{row.title}</a>
+					<a class={`table-link ${row.titleClass ?? ''}`.trim()} href={row.href}>{row.title}</a>
 				{:else}
-					<strong>{row.title}</strong>
+					<strong class={row.titleClass ?? ''}>{row.title}</strong>
 				{/if}
 				<button class="icon-button expand-toggle" aria-label={openRows.has(row.id) ? 'Hide details' : 'Show details'} on:click={() => toggle(row.id)}>
 					{#if openRows.has(row.id)}

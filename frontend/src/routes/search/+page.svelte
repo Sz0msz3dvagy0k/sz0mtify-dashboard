@@ -73,9 +73,9 @@
 							<a class="result-title-link" href={`/tracks/${row[0]}`}>{row[1]}</a>
 							<small>
 								{#if row[7]}
-									<a href={`/artists/${row[7]}`}>{row[2] ?? 'Unknown artist'}</a>
+									<a class="artist-name" href={`/artists/${row[7]}`}>{row[2] ?? 'Unknown artist'}</a>
 								{:else}
-									<span>{row[2] ?? 'Unknown artist'}</span>
+									<span class="artist-name">{row[2] ?? 'Unknown artist'}</span>
 								{/if}
 								<span> · </span>
 								{#if row[3]}
@@ -102,9 +102,9 @@
 							<a class="result-title-link" href={`/albums/${row[0]}`}>{row[1]}</a>
 							<small>
 								{#if row[4]}
-									<a href={`/artists/${row[4]}`}>{row[2] ?? 'Unknown artist'}</a>
+									<a class="artist-name" href={`/artists/${row[4]}`}>{row[2] ?? 'Unknown artist'}</a>
 								{:else}
-									{row[2] ?? 'Unknown artist'}
+									<span class="artist-name">{row[2] ?? 'Unknown artist'}</span>
 								{/if}
 							</small>
 						</span>
@@ -119,7 +119,7 @@
 							<ImageWithFallback src={row[2]} fallbackSrc={coverUrl(row[3])} alt={row[1]} kind="artist" />
 						</div>
 						<span>
-							<strong>{row[1]}</strong>
+							<strong class="artist-name">{row[1]}</strong>
 						</span>
 					</a>
 				{/each}

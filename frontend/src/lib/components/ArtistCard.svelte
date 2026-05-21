@@ -37,7 +37,7 @@
 		<ImageWithFallback src={artistImageUrl} fallbackSrc={fallbackImageSrc} alt={name} kind="artist" />
 	</div>
 	<div class="media-body">
-		<strong>{name}</strong>
+		<strong class="artist-name">{name}</strong>
 		<span>{formatNumber(albums)} albums • {formatNumber(tracks)} tracks</span>
 		<em>{formatNumber(plays)} plays</em>
 	</div>

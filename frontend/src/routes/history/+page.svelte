@@ -113,7 +113,7 @@
 						</div>
 						<span>
 							<strong>{entry.title}</strong>
-							<small>{entry.artist} · {entry.album}</small>
+							<small><span class="artist-name artist-meta">{entry.artist}</span> · {entry.album}</small>
 						</span>
 						<em>{playedTime(entry.playedAt) || formatDuration(entry.duration)}</em>
 					</button>

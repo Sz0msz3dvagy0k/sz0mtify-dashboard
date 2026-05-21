@@ -64,7 +64,7 @@
 				{#if selectedGenreTracks.length}
 					<div class="panel-list">
 						{#each selectedGenreTracks as track}
-							<TrackRow title={track[1]} detail={track[5] ?? ''} duration={track[4]} href={trackHref(track[0])} />
+							<TrackRow title={track[1]} detail={track[5] ?? ''} detailClass="artist-name" duration={track[4]} href={trackHref(track[0])} />
 						{/each}
 					</div>
 				{:else}

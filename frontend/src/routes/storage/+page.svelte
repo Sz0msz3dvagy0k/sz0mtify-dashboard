@@ -114,7 +114,7 @@
 								<div class="local-media-row">
 									<a href={`/albums/${album.id}`}>
 										<strong>{album.title}</strong>
-										<span>{album.artistName} · {album.trackIds.length}/{album.sourceTrackCount ?? album.trackIds.length} tracks</span>
+										<span><span class="artist-name artist-meta">{album.artistName}</span> · {album.trackIds.length}/{album.sourceTrackCount ?? album.trackIds.length} tracks</span>
 									</a>
 									<button class="icon-button" aria-label={`Delete ${album.title}`} disabled={localBusy === `album-${album.id}`} on:click={() => runLocalAction(`album-${album.id}`, () => deleteLocalAlbum(album.id))}>
 										<Trash2 size={16} />
@@ -154,7 +154,7 @@
 						<div class="local-media-row">
 							<a href={track.albumId ? `/albums/${track.albumId}?track=${track.id}` : undefined}>
 								<strong>{track.title}</strong>
-								<span>{track.artist} · {track.album} · {formatBytes(track.sizeBytes)}</span>
+								<span><span class="artist-name artist-meta">{track.artist}</span> · {track.album} · {formatBytes(track.sizeBytes)}</span>
 							</a>
 							<button class="icon-button" aria-label={`Delete ${track.title}`} disabled={localBusy === `track-${track.id}`} on:click={() => runLocalAction(`track-${track.id}`, () => deleteLocalTrack(track.id))}>
 								<Trash2 size={16} />

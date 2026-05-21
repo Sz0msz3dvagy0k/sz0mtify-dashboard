@@ -35,7 +35,7 @@
 	</div>
 	<div class="media-body">
 		<strong>{title}</strong>
-		<span>{artist}{year ? ` • ${year}` : ''}</span>
+		<span><span class="artist-name artist-meta">{artist}</span>{year ? ` • ${year}` : ''}</span>
 		{#if genre}<em>{genre}</em>{/if}
 	</div>
 </a>

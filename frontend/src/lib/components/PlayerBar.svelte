@@ -1057,7 +1057,7 @@
 							</div>
 							<div class={visualExpanded ? 'player-expanded-title' : 'player-track'}>
 								<strong>{previousTrack.title}</strong>
-								<span>{previousTrack.artist} · {previousTrack.album}</span>
+								<span><span class="artist-name artist-meta">{previousTrack.artist}</span> · {previousTrack.album}</span>
 							</div>
 						</div>
 					{/if}
@@ -1070,7 +1070,7 @@
 			<div class="player-expanded-main">
 				<div class="player-expanded-title">
 					<strong>{currentTrack.title}</strong>
-					<span>{currentTrack.artist} · {currentTrack.album}</span>
+					<span><span class="artist-name artist-meta">{currentTrack.artist}</span> · {currentTrack.album}</span>
 				</div>
 
 				{#if lyricsOpen}
@@ -1133,7 +1133,7 @@
 					</div>
 					<div class="player-track">
 						<strong>{currentTrack.title}</strong>
-						<span>{currentTrack.artist}</span>
+						<span class="artist-name">{currentTrack.artist}</span>
 					</div>
 					<div class="player-compact-buttons">
 						<button class="icon-button desktop-player-control" aria-label="Previous track" on:click|stopPropagation={playPrevious} disabled={$player.currentIndex <= 0}>
@@ -1164,7 +1164,7 @@
 							</div>
 							<div class={visualExpanded ? 'player-expanded-title' : 'player-track'}>
 								<strong>{nextTrack.title}</strong>
-								<span>{nextTrack.artist} · {nextTrack.album}</span>
+								<span><span class="artist-name artist-meta">{nextTrack.artist}</span> · {nextTrack.album}</span>
 							</div>
 						</div>
 					{/if}
@@ -1188,7 +1188,7 @@
 						</div>
 						<span>
 							<strong>{track.title}</strong>
-							<small>{track.artist}</small>
+							<small class="artist-name">{track.artist}</small>
 						</span>
 					</button>
 				{/each}

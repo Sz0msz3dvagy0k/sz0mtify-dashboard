@@ -175,9 +175,9 @@
 						<td>
 							<a class="playlist-track-title table-inline-link" href={`/tracks/${track[0]}`} on:click|stopPropagation>{track[1]}</a>
 							{#if track[8]}
-								<a class="playlist-track-artist table-inline-link muted-link" href={`/artists/${track[8]}`} on:click|stopPropagation>{track[2] ?? 'Unknown artist'}</a>
+								<a class="playlist-track-artist artist-name table-inline-link muted-link" href={`/artists/${track[8]}`} on:click|stopPropagation>{track[2] ?? 'Unknown artist'}</a>
 							{:else}
-								<span class="playlist-track-artist">{track[2] ?? 'Unknown artist'}</span>
+								<span class="playlist-track-artist artist-name">{track[2] ?? 'Unknown artist'}</span>
 							{/if}
 						</td>
 						<td>

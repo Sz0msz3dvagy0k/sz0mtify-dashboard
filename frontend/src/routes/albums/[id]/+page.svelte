@@ -139,7 +139,7 @@
 			<ImageWithFallback src={coverUrl(album[6])} alt={album[1]} />
 		</div>
 		<div>
-			<p class="eyebrow">{artistName}</p>
+			<p class="eyebrow artist-name">{artistName}</p>
 			<h2>{album[1]}</h2>
 			<div class="metric-grid compact">
 				<StatCard label="Year" value={album[3] ?? '—'} />

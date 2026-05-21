@@ -62,7 +62,7 @@
 		</div>
 		<div>
 			<p class="eyebrow">Artist profile</p>
-			<h2>{artist[1]}</h2>
+			<h2 class="artist-name">{artist[1]}</h2>
 			<div class="metric-grid compact">
 				<StatCard label="Albums" value={formatNumber(artist[2] ?? 0)} />
 				<StatCard label="Tracks" value={formatNumber(artist[3] ?? 0)} />
