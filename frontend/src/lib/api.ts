@@ -90,6 +90,8 @@ export const api = {
 	logout: () => request<{ status: string }>('/api/auth/logout', { method: 'POST' }),
 	me: () => request<AuthUser>('/api/auth/me'),
 	activeSessions: () => request<ActiveSession[]>('/api/auth/sessions'),
+	deleteSession: (sessionId: string) =>
+		request<{ status: string }>(`/api/auth/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }),
 	streamToken: () => request<StreamToken>('/api/auth/stream-token', { method: 'POST' }),
 	settings: () => request<[string, string][]>('/api/settings'),
 	saveSettings: (body: Record<string, unknown>) =>

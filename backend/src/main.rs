@@ -9,7 +9,7 @@ use std::{collections::HashSet, env, net::SocketAddr, sync::Arc, time::Duration}
 use axum::{
     http::{header, HeaderValue, Method},
     middleware,
-    routing::{get, post},
+    routing::{delete, get, post},
     Router,
 };
 use db::migrate;
@@ -119,6 +119,10 @@ async fn run() -> anyhow::Result<()> {
         .route("/api/auth/logout", post(api::handlers::logout))
         .route("/api/auth/me", get(api::handlers::me))
         .route("/api/auth/sessions", get(api::handlers::active_sessions))
+        .route(
+            "/api/auth/sessions/:session_id",
+            delete(api::handlers::revoke_session),
+        )
         .route("/api/auth/stream-token", post(api::handlers::stream_token))
         .route(
             "/api/settings",

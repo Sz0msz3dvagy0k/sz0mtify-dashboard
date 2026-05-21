@@ -526,6 +526,8 @@ tr:focus-within .track-actions-trigger,
 	background: #181818;
 	color: #fff;
 }
+.track-actions-menu .danger-menu-item { color: #fca5a5; }
+.track-actions-menu .danger-menu-item:hover:not(:disabled) { color: #fecaca; }
 .track-actions-menu button:disabled {
 	color: #737373;
 	cursor: not-allowed;

@@ -145,6 +145,23 @@ impl AppAuth {
         Ok(())
     }
 
+    pub async fn revoke_session(&self, session_id: &str) -> anyhow::Result<bool> {
+        if session_id.len() != 12
+            || !session_id
+                .chars()
+                .all(|character| character.is_ascii_hexdigit())
+        {
+            return Ok(false);
+        }
+
+        let result = sqlx::query("DELETE FROM app_sessions WHERE substr(token_hash, 1, 12) = ?")
+            .bind(session_id)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
     pub async fn authenticate(&self, token: &str) -> Option<AuthUser> {
         let now = now_unix();
         if let Err(error) = self.cleanup_expired_sessions(now).await {
@@ -423,6 +440,17 @@ mod tests {
         assert_eq!(sessions.len(), 1);
         assert_eq!(sessions[0].username, "admin");
         assert!(sessions[0].current);
+    }
+
+    #[tokio::test]
+    async fn revoke_session_removes_session_by_display_id() {
+        let auth = test_auth().await;
+
+        let session = auth.login("admin", "secret").await.unwrap().unwrap();
+        let sessions = auth.active_sessions(Some(&session.token)).await.unwrap();
+
+        assert!(auth.revoke_session(&sessions[0].session_id).await.unwrap());
+        assert!(auth.authenticate(&session.token).await.is_none());
     }
 
     #[tokio::test]

@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { Loader2, MoreHorizontal, Trash2 } from 'lucide-svelte';
 	import { api } from '$lib/api';
+	import { clearAuthSession } from '$lib/auth';
 	import type { ActiveSession, SyncStatus } from '$lib/types';
 	import DataTable from '$lib/components/DataTable.svelte';
 	import ErrorState from '$lib/components/ErrorState.svelte';
@@ -15,6 +17,9 @@
 	let message = '';
 	let error = '';
 	let busy = '';
+	let openSessionMenuId: string | null = null;
+	let deletingSessionId: string | null = null;
+	let sessionTableRoot: HTMLDivElement | null = null;
 	let transcodeMode = 'never';
 	let transcodeQuality = '192';
 
@@ -66,6 +71,7 @@
 	async function run(label: string, fn: () => Promise<unknown>) {
 		busy = label;
 		message = '';
+		error = '';
 		try {
 			await fn();
 			message = `${label} started`;
@@ -76,18 +82,46 @@
 			busy = '';
 		}
 	}
+
+	function closeSessionMenuFromOutside(event: PointerEvent) {
+		if (!openSessionMenuId || !sessionTableRoot || sessionTableRoot.contains(event.target as Node)) return;
+		openSessionMenuId = null;
+	}
+
+	function toggleSessionMenu(sessionId: string) {
+		openSessionMenuId = openSessionMenuId === sessionId ? null : sessionId;
+	}
+
+	async function deleteSession(session: ActiveSession) {
+		deletingSessionId = session.session_id;
+		error = '';
+		message = '';
+		try {
+			await api.deleteSession(session.session_id);
+			openSessionMenuId = null;
+
+			if (session.current) {
+				clearAuthSession();
+				window.location.reload();
+				return;
+			}
+
+			message = 'Session deleted';
+			await load();
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Unable to delete session';
+		} finally {
+			deletingSessionId = null;
+		}
+	}
+
 	onMount(() => {
+		document.addEventListener('pointerdown', closeSessionMenuFromOutside);
 		void initNetworkStatus();
 		void load();
+		return () => document.removeEventListener('pointerdown', closeSessionMenuFromOutside);
 	});
 	$: safeSettings = settings.map(([key, value]) => [key, /key|password|token|secret/i.test(key) ? '••••••••' : value]);
-	$: sessionRows = sessions.map((session) => [
-		session.current ? `${session.session_id} · current` : session.session_id,
-		session.username,
-		formatSessionTime(session.last_seen_at),
-		formatSessionTime(session.created_at),
-		formatSessionTime(session.expires_at)
-	]);
 </script>
 
 {#if error}<ErrorState message={error} retry={load} />{/if}
@@ -130,6 +164,60 @@
 	</label>
 	<button class="button" disabled={!!busy} on:click={saveTranscoding}>Save Playback</button>
 </section>
-<DataTable columns={['Session', 'User', 'Last Seen', 'Created', 'Expires']} rows={sessionRows} />
+<div class="table-wrap" bind:this={sessionTableRoot}>
+	<table>
+		<thead>
+			<tr>
+				<th>Session</th>
+				<th>User</th>
+				<th>Last Seen</th>
+				<th>Created</th>
+				<th>Expires</th>
+				<th aria-label="Actions"></th>
+			</tr>
+		</thead>
+		<tbody>
+			{#each sessions as session}
+				<tr>
+					<td>{session.current ? `${session.session_id} · current` : session.session_id}</td>
+					<td>{session.username}</td>
+					<td>{formatSessionTime(session.last_seen_at)}</td>
+					<td>{formatSessionTime(session.created_at)}</td>
+					<td>{formatSessionTime(session.expires_at)}</td>
+					<td>
+						<div class="track-actions" class:open={openSessionMenuId === session.session_id}>
+							<button
+								class="icon-button track-actions-trigger"
+								type="button"
+								aria-label={`Session actions for ${session.session_id}`}
+								aria-haspopup="menu"
+								aria-expanded={openSessionMenuId === session.session_id}
+								disabled={deletingSessionId !== null}
+								on:click|stopPropagation={() => toggleSessionMenu(session.session_id)}
+							>
+								{#if deletingSessionId === session.session_id}<Loader2 size={18} />{:else}<MoreHorizontal size={18} />{/if}
+							</button>
+
+							{#if openSessionMenuId === session.session_id}
+								<div class="track-actions-menu" role="menu">
+									<button
+										class="danger-menu-item"
+										type="button"
+										role="menuitem"
+										disabled={deletingSessionId !== null}
+										on:click|stopPropagation={() => deleteSession(session)}
+									>
+										<Trash2 size={16} />
+										<span>Delete session</span>
+									</button>
+								</div>
+							{/if}
+						</div>
+					</td>
+				</tr>
+			{/each}
+		</tbody>
+	</table>
+</div>
 <DataTable columns={['ID', 'Source', 'Last Sync', 'Status', 'Error']} rows={status} />
 <DataTable columns={['Setting', 'Value']} rows={safeSettings} />

@@ -120,6 +120,23 @@ pub async fn active_sessions(
     }
 }
 
+pub async fn revoke_session(
+    State(state): State<Arc<AppState>>,
+    Path(session_id): Path<String>,
+) -> impl IntoResponse {
+    match state.auth.revoke_session(&session_id).await {
+        Ok(true) => (StatusCode::OK, ok(json!({"status": "session_deleted"}))),
+        Ok(false) => (StatusCode::NOT_FOUND, err("session_not_found")),
+        Err(error) => {
+            warn!(error = %error, session_id, "failed to revoke session");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                err("failed_to_revoke_session"),
+            )
+        }
+    }
+}
+
 pub async fn stream_token(
     State(state): State<Arc<AppState>>,
     Extension(user): Extension<AuthUser>,
