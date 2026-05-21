@@ -1072,10 +1072,17 @@ tr:focus-within .track-actions-trigger,
 		align-content: stretch;
 		align-items: stretch;
 	}
+	.player-bar.expanded.lyrics-open .player-swipe-panel {
+		grid-template-columns: minmax(220px, min(28vw, 360px)) minmax(0, 1fr);
+		gap: 20px;
+	}
 	.player-bar.expanded .player-expanded-art {
 		width: min(420px, 100%, calc(100vh - 120px));
 		align-self: center;
 		justify-self: center;
+	}
+	.player-bar.expanded.lyrics-open .player-expanded-art {
+		width: min(360px, 100%, calc(100vh - 160px));
 	}
 	.player-bar.expanded .player-expanded-main {
 		height: 100%;
@@ -1098,7 +1105,8 @@ tr:focus-within .track-actions-trigger,
 		min-height: 0;
 	}
 	.player-bar.expanded.lyrics-open .lyrics-lines {
-		max-height: min(30vh, 260px);
+		height: 100%;
+		max-height: none;
 	}
 	.player-bar.expanded .player-expanded-controls {
 		position: absolute;
