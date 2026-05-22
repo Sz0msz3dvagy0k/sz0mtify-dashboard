@@ -15,17 +15,25 @@
 		deleteLocalTrack,
 		loadLocalMedia,
 		localMedia,
-		localMediaTotals
+		localMediaStorageBudget,
+		localMediaTotals,
+		pruneLocalMediaToBudget,
+		setLocalMediaStorageBudget
 	} from '$lib/localMedia';
 
 	let storage: StorageStats;
 	let loading = true;
 	let error = '';
 	let localBusy = '';
+	let localBudgetBytes = 0;
+	let localBudgetGb = '8';
 	async function load() {
 		loading = true;
 		try {
-			[storage] = await Promise.all([api.storage(), loadLocalMedia()]);
+			const [, budget] = await Promise.all([loadLocalMedia(), localMediaStorageBudget()]);
+			storage = await api.storage();
+			localBudgetBytes = budget;
+			localBudgetGb = (budget / 1024 ** 3).toFixed(1).replace(/\.0$/, '');
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Unable to load storage';
 		} finally {
@@ -63,6 +71,7 @@
 		] as [string, string | number | null | undefined][]
 	})) ?? [];
 	$: localTotals = localMediaTotals($localMedia);
+	$: localBudgetPercent = localBudgetBytes > 0 ? Math.min(100, (localTotals.bytes / localBudgetBytes) * 100) : 0;
 	$: localTracks = Object.values($localMedia.tracks).sort((a, b) => b.downloadedAt.localeCompare(a.downloadedAt));
 	$: localAlbums = Object.values($localMedia.albums).sort((a, b) => b.downloadedAt.localeCompare(a.downloadedAt));
 	$: localPlaylists = Object.values($localMedia.playlists).sort((a, b) => b.downloadedAt.localeCompare(a.downloadedAt));
@@ -77,6 +86,16 @@
 		} finally {
 			localBusy = '';
 		}
+	}
+
+	async function saveLocalBudget() {
+		const gb = Number(localBudgetGb);
+		if (!Number.isFinite(gb) || gb <= 0) return;
+		await runLocalAction('budget', async () => {
+			await setLocalMediaStorageBudget(gb * 1024 ** 3);
+			localBudgetBytes = await localMediaStorageBudget();
+			localBudgetGb = (localBudgetBytes / 1024 ** 3).toFixed(1).replace(/\.0$/, '');
+		});
 	}
 </script>
 
@@ -97,13 +116,27 @@
 				<p class="eyebrow">Mobile downloads</p>
 				<h2>Local Media</h2>
 			</div>
-			<span class="muted">{formatBytes(localTotals.bytes)} · {localTotals.tracks} tracks</span>
+			<span class="muted">{formatBytes(localTotals.bytes)} / {formatBytes(localBudgetBytes)} · {localTotals.tracks} tracks</span>
 		</div>
 		<section class="metric-grid compact">
 			<StatCard label="Downloaded Tracks" value={localTotals.tracks} />
 			<StatCard label="Downloaded Albums" value={localTotals.albums} />
 			<StatCard label="Downloaded Playlists" value={localTotals.playlists} />
 		</section>
+		<div class="table-wrap local-media-panel">
+			<header>Download Budget</header>
+			<div class="local-budget-row">
+				<div class="local-budget-meter" aria-label="Local media storage budget">
+					<span style={`width: ${localBudgetPercent}%`}></span>
+				</div>
+				<label>
+					<span>GB</span>
+					<input type="number" min="0.125" step="0.5" bind:value={localBudgetGb} disabled={localBusy === 'budget'} />
+				</label>
+				<button class="button ghost" disabled={localBusy === 'budget'} on:click={saveLocalBudget}>Save Budget</button>
+				<button class="button ghost" disabled={localBusy === 'prune'} on:click={() => runLocalAction('prune', pruneLocalMediaToBudget)}>Free Space</button>
+			</div>
+		</div>
 		{#if localTotals.tracks}
 			<div class="dashboard-grid">
 				<div class="table-wrap local-media-panel">

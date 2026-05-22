@@ -75,6 +75,18 @@
 	onMount(async () => {
 		const session = loadStoredSession();
 		if (!session) {
+			try {
+				const user = await api.me();
+				accountName = user.username;
+				authenticated = true;
+				void initNetworkStatus();
+				void loadLocalMedia();
+				void warmStreamToken().catch((error) => console.warn('Unable to warm stream token', error));
+				await loadShellData();
+			} catch {
+				authChecked = true;
+				return;
+			}
 			authChecked = true;
 			return;
 		}

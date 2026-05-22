@@ -18,7 +18,7 @@ export function loadStoredSession(): AuthSession | null {
 		const raw = localStorage.getItem(STORAGE_KEY);
 		if (!raw) return null;
 		const session = JSON.parse(raw) as AuthSession;
-		if (!session.token || session.expires_at <= Math.floor(Date.now() / 1000)) {
+		if (!session.username || session.expires_at <= Math.floor(Date.now() / 1000)) {
 			clearAuthSession();
 			return null;
 		}
@@ -31,8 +31,17 @@ export function loadStoredSession(): AuthSession | null {
 }
 
 export function saveAuthSession(session: AuthSession) {
-	authSession.set(session);
-	if (browser) localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+	const storedSession = {
+		username: session.username,
+		expires_at: session.expires_at
+	};
+	authSession.set(storedSession);
+	if (browser) {
+		localStorage.setItem(
+			STORAGE_KEY,
+			JSON.stringify(storedSession)
+		);
+	}
 }
 
 export function clearAuthSession() {

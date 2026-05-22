@@ -1,4 +1,8 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    env,
+    sync::Arc,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use axum::{
     body::{Body, Bytes},
@@ -7,6 +11,7 @@ use axum::{
         header::{
             ACCEPT_RANGES, CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE,
             CONTENT_TYPE, ETAG, IF_MODIFIED_SINCE, IF_NONE_MATCH, IF_RANGE, LAST_MODIFIED, RANGE,
+            SET_COOKIE,
         },
         HeaderMap, HeaderName, HeaderValue, StatusCode,
     },
@@ -17,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tracing::{error, info, warn};
 
-use crate::auth::{bearer_token, AuthUser};
+use crate::auth::{app_session_token, AuthUser, SESSION_COOKIE_NAME};
 use crate::services::discovery::{DiscoveryListOptions, DiscoveryRefreshOptions};
 use crate::services::settings::SettingsService;
 use crate::services::{sync::SubsonicConfig, AppState};
@@ -64,6 +69,39 @@ fn err(message: &str) -> Json<Value> {
     Json(json!({"ok": false, "error": message}))
 }
 
+fn set_session_cookie(headers: &mut HeaderMap, token: &str, expires_at: u64) {
+    let now = unix_now();
+    let max_age = expires_at.saturating_sub(now).max(1);
+    let secure = if secure_session_cookie() { "; Secure" } else { "" };
+    if let Ok(value) = HeaderValue::from_str(&format!(
+        "{SESSION_COOKIE_NAME}={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={max_age}{secure}"
+    )) {
+        headers.insert(SET_COOKIE, value);
+    }
+}
+
+fn clear_session_cookie(headers: &mut HeaderMap) {
+    let secure = if secure_session_cookie() { "; Secure" } else { "" };
+    if let Ok(value) = HeaderValue::from_str(&format!(
+        "{SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0{secure}"
+    )) {
+        headers.insert(SET_COOKIE, value);
+    }
+}
+
+fn secure_session_cookie() -> bool {
+    env::var("APP_COOKIE_SECURE")
+        .map(|value| value != "0" && !value.eq_ignore_ascii_case("false"))
+        .unwrap_or(true)
+}
+
+fn unix_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
 pub async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
     let db_ok = sqlx::query("SELECT 1").execute(&state.pool).await.is_ok();
     Json(json!({"ok": db_ok, "status": if db_ok { "ok" } else { "degraded" }}))
@@ -74,30 +112,43 @@ pub async fn login(
     Json(payload): Json<LoginPayload>,
 ) -> impl IntoResponse {
     match state.auth.login(&payload.username, &payload.password).await {
-        Ok(Some(session)) => (StatusCode::OK, ok(json!(session))),
-        Ok(None) => (StatusCode::UNAUTHORIZED, err("invalid_credentials")),
+        Ok(Some(session)) => {
+            let mut headers = HeaderMap::new();
+            set_session_cookie(&mut headers, &session.token, session.expires_at);
+            (StatusCode::OK, headers, ok(json!(session))).into_response()
+        }
+        Ok(None) => (StatusCode::UNAUTHORIZED, err("invalid_credentials")).into_response(),
         Err(error) => {
             warn!(error = %error, "failed to create login session");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 err("failed_to_create_session"),
             )
+                .into_response()
         }
     }
 }
 
 pub async fn logout(State(state): State<Arc<AppState>>, headers: HeaderMap) -> impl IntoResponse {
-    if let Some(token) = bearer_token(&headers) {
+    if let Some(token) = app_session_token(&headers) {
         if let Err(error) = state.auth.logout(token).await {
             warn!(error = %error, "failed to revoke session");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 err("failed_to_revoke_session"),
-            );
+            )
+                .into_response();
         }
     }
 
-    (StatusCode::OK, ok(json!({"status": "signed_out"})))
+    let mut response_headers = HeaderMap::new();
+    clear_session_cookie(&mut response_headers);
+    (
+        StatusCode::OK,
+        response_headers,
+        ok(json!({"status": "signed_out"})),
+    )
+        .into_response()
 }
 
 pub async fn me(Extension(user): Extension<AuthUser>) -> Json<Value> {
@@ -108,7 +159,7 @@ pub async fn active_sessions(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    match state.auth.active_sessions(bearer_token(&headers)).await {
+    match state.auth.active_sessions(app_session_token(&headers)).await {
         Ok(sessions) => (StatusCode::OK, ok(json!(sessions))),
         Err(error) => {
             warn!(error = %error, "failed to load active sessions");
@@ -1589,11 +1640,11 @@ fn streaming_response(
     }
     headers.insert(
         CACHE_CONTROL,
-        if mode == StreamResponseMode::Transcoded {
-            HeaderValue::from_static("private, no-store")
-        } else {
-            HeaderValue::from_static("private, max-age=86400")
-        },
+        HeaderValue::from_static("private, no-store, max-age=0"),
+    );
+    headers.insert(
+        HeaderName::from_static("referrer-policy"),
+        HeaderValue::from_static("no-referrer"),
     );
     if let Ok(disposition) = HeaderValue::from_str(&format!(
         "inline; filename=\"{}\"",

@@ -28,6 +28,7 @@ export type LocalTrack = QueueTrack & {
 	trackNumber: number | null;
 	discNumber: number | null;
 	downloadedAt: string;
+	lastAccessedAt?: string;
 };
 
 export type LocalAlbum = {
@@ -97,6 +98,8 @@ type TrackDownloadContext = {
 };
 
 const manifestKey = 'archive.localMediaManifest.v1';
+const storageBudgetKey = 'archive.localMediaBudgetBytes.v1';
+const defaultStorageBudgetBytes = 8 * 1024 ** 3;
 const browserObjectUrls = new Map<string, string>();
 
 const emptyManifest = (): LocalMediaManifest => ({
@@ -147,6 +150,7 @@ export async function localTrackUrl(trackId: number): Promise<string | null> {
 		return uri ? Capacitor.convertFileSrc(uri) : null;
 	}
 
+	void markTrackAccessed(trackId);
 	return readFileObjectUrl(track.filePath, track.contentType ?? 'application/octet-stream');
 }
 
@@ -154,6 +158,7 @@ export async function localTrackNativeUri(trackId: number): Promise<string | nul
 	const manifest = await loadLocalMedia();
 	const track = manifest.tracks[String(trackId)];
 	if (!track || !(await hasLocalMedia(trackId))) return null;
+	void markTrackAccessed(trackId);
 	const uri = await Filesystem.getUri({ path: track.filePath, directory: Directory.Data });
 	return uri.uri;
 }
@@ -261,11 +266,13 @@ export async function downloadTrack(track: QueueTrack, context: TrackDownloadCon
 		genre: context.playlist?.genre ?? context.album?.genre ?? null,
 		trackNumber: context.album?.trackNumber ?? null,
 		discNumber: context.album?.discNumber ?? null,
-		downloadedAt: new Date().toISOString()
+		downloadedAt: new Date().toISOString(),
+		lastAccessedAt: new Date().toISOString()
 	};
 
 	manifest.tracks[trackKey] = localTrack;
 	upsertContext(manifest, localTrack, context);
+	await enforceLocalMediaBudget(manifest, track.id);
 	await saveManifest(manifest);
 	return localTrack;
 }
@@ -536,6 +543,37 @@ export function localMediaTotals(manifest: LocalMediaManifest) {
 	};
 }
 
+export async function localMediaStorageBudget(): Promise<number> {
+	if (!browser) return defaultStorageBudgetBytes;
+	try {
+		const value = Capacitor.isNativePlatform()
+			? (await Preferences.get({ key: storageBudgetKey })).value
+			: localStorage.getItem(storageBudgetKey);
+		const parsed = Number(value);
+		return Number.isFinite(parsed) && parsed > 0 ? parsed : defaultStorageBudgetBytes;
+	} catch {
+		return defaultStorageBudgetBytes;
+	}
+}
+
+export async function setLocalMediaStorageBudget(bytes: number): Promise<void> {
+	const budget = Math.max(128 * 1024 ** 2, Math.floor(bytes));
+	if (Capacitor.isNativePlatform()) {
+		await Preferences.set({ key: storageBudgetKey, value: String(budget) });
+	} else if (browser) {
+		localStorage.setItem(storageBudgetKey, String(budget));
+	}
+	const manifest = cloneManifest(await loadLocalMedia());
+	await enforceLocalMediaBudget(manifest);
+	await saveManifest(manifest);
+}
+
+export async function pruneLocalMediaToBudget(): Promise<void> {
+	const manifest = cloneManifest(await loadLocalMedia());
+	await enforceLocalMediaBudget(manifest);
+	await saveManifest(manifest);
+}
+
 async function remoteLosslessStreamUrl(trackId: number): Promise<string> {
 	const response = await fetch(`${apiBase()}/api/auth/stream-token`, {
 		method: 'POST',
@@ -546,6 +584,55 @@ async function remoteLosslessStreamUrl(trackId: number): Promise<string> {
 	const token = payload?.ok ? payload.data?.token : null;
 	if (!response.ok || !token) throw new Error('stream_token_unavailable');
 	return withStreamToken(`${apiBase()}/api/tracks/${trackId}/stream?lossless=true`, token);
+}
+
+async function markTrackAccessed(trackId: number): Promise<void> {
+	const manifest = cloneManifest(await loadLocalMedia());
+	const track = manifest.tracks[String(trackId)];
+	if (!track) return;
+	const now = new Date().toISOString();
+	if (track.lastAccessedAt && Date.now() - new Date(track.lastAccessedAt).getTime() < 60_000) return;
+	manifest.tracks[String(trackId)] = { ...track, lastAccessedAt: now };
+	await saveManifest(manifest);
+}
+
+async function enforceLocalMediaBudget(manifest: LocalMediaManifest, protectedTrackId?: number): Promise<void> {
+	const budget = await localMediaStorageBudget();
+	let total = manifestTrackBytes(manifest);
+	if (total <= budget) return;
+
+	const candidates = Object.values(manifest.tracks)
+		.filter((track) => track.id !== protectedTrackId)
+		.sort((a, b) => lruTime(a) - lruTime(b));
+
+	for (const track of candidates) {
+		if (total <= budget) break;
+		await removeTrackFromManifest(manifest, track.id);
+		total -= track.sizeBytes;
+	}
+	await cleanupUnreferencedImages(manifest);
+}
+
+async function removeTrackFromManifest(manifest: LocalMediaManifest, trackId: number): Promise<void> {
+	const track = manifest.tracks[String(trackId)];
+	if (!track) return;
+	await deletePath(track.filePath);
+	delete manifest.tracks[String(trackId)];
+	for (const album of Object.values(manifest.albums)) {
+		album.trackIds = album.trackIds.filter((id) => id !== trackId);
+	}
+	for (const playlist of Object.values(manifest.playlists)) {
+		playlist.trackIds = playlist.trackIds.filter((id) => id !== trackId);
+	}
+	removeEmptyCollections(manifest);
+}
+
+function manifestTrackBytes(manifest: LocalMediaManifest): number {
+	return Object.values(manifest.tracks).reduce((sum, track) => sum + track.sizeBytes, 0);
+}
+
+function lruTime(track: LocalTrack): number {
+	return new Date(track.lastAccessedAt ?? track.downloadedAt).getTime() || 0;
 }
 
 async function downloadCoverIfNeeded(manifest: LocalMediaManifest, coverArtId: string | null): Promise<LocalImage | null> {

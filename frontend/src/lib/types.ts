@@ -2,7 +2,7 @@ export type ApiEnvelope<T> = { ok: true; data: T } | { ok: false; error: string 
 
 export type AuthSession = {
 	username: string;
-	token: string;
+	token?: string;
 	expires_at: number;
 };
 

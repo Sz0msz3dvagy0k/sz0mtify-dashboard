@@ -506,6 +506,29 @@ a.track-row:hover, .result-row:hover { background: #141414; }
 	white-space: nowrap;
 }
 .local-media-row span { color: #8a8a8a; font-size: 13px; }
+.local-budget-row {
+	display: grid;
+	grid-template-columns: minmax(160px, 1fr) 92px auto auto;
+	align-items: end;
+	gap: 12px;
+}
+.local-budget-meter {
+	height: 10px;
+	overflow: hidden;
+	border: 1px solid #262626;
+	border-radius: 999px;
+	background: #101010;
+}
+.local-budget-meter span { display: block; height: 100%; background: #f5f5f5; }
+.local-budget-row label { display: grid; gap: 6px; color: #8a8a8a; font-size: 12px; }
+.local-budget-row input {
+	width: 100%;
+	border: 1px solid #262626;
+	border-radius: 6px;
+	background: #101010;
+	color: #f5f5f5;
+	padding: 10px;
+}
 .items-per-page {
 	display: flex;
 	align-items: center;
@@ -1307,6 +1330,10 @@ tr:focus-within .track-actions-trigger,
 	.swipe-queue-target.queued-at-top,
 	.swipe-queue-target.queued-at-top td {
 		background: rgba(245,245,245,.18);
+	}
+	.local-budget-row {
+		grid-template-columns: 1fr;
+		align-items: stretch;
 	}
 	.playlist-table-wrap { overflow-x: hidden; }
 	.table-wrap:has(.track-actions.open),
