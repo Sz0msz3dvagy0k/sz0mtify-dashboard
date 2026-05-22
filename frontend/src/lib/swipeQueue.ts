@@ -8,7 +8,6 @@ type SwipeQueueOptions = {
 
 const swipeThreshold = 76;
 const verticalTolerance = 52;
-const maxPreviewOffset = 18;
 
 export function swipeQueue(node: HTMLElement, options: SwipeQueueOptions) {
 	let currentOptions = options;
