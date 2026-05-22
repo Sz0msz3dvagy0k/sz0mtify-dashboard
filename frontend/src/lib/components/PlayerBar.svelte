@@ -494,7 +494,11 @@
 			if (nativePlayingAssetId === assetId) {
 				await NativeAudio.resume({ assetId });
 			} else {
-				await NativeAudio.play({ assetId, time: currentTime, volume: nativeVolume($player.volume) });
+				await NativeAudio.play({
+					assetId,
+					time: pendingAutoplayTrackId === trackId ? 0 : currentTime,
+					volume: nativeVolume($player.volume)
+				});
 			}
 			nativePlayingAssetId = assetId;
 			pendingAutoplayTrackId = null;

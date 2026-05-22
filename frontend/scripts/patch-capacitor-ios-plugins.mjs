@@ -281,7 +281,27 @@ const rejectShim = `private extension CAPPluginCall {
 		['commandCenter.skipForwardCommand.isEnabled = true', 'commandCenter.skipForwardCommand.isEnabled = false'],
 		['commandCenter.skipBackwardCommand.preferredIntervals = [NSNumber(value: 15)]', 'commandCenter.skipBackwardCommand.preferredIntervals = []'],
 		['commandCenter.skipBackwardCommand.isEnabled = true', 'commandCenter.skipBackwardCommand.isEnabled = false'],
-		['audioQueue.sync {\n            guard !audioList.isEmpty else {', 'audioQueue.sync { [self] in\n            guard !audioList.isEmpty else {']
+		['audioQueue.sync {\n            guard !audioList.isEmpty else {', 'audioQueue.sync { [self] in\n            guard !audioList.isEmpty else {'],
+		[
+			'self.updateNowPlayingInfo(audioId: assetId, audioAsset: asset)\n                    self.updatePlaybackState(isPlaying: true)',
+			'self.updateNowPlayingInfo(audioId: assetId, audioAsset: asset)\n                    self.updatePlaybackState(isPlaying: true, elapsedTime: asset.getCurrentTime(), duration: asset.getDuration())'
+		],
+		[
+			'self.updateNowPlayingInfo(audioId: audioId, audioAsset: audioAsset)\n                            self.updatePlaybackState(isPlaying: true)',
+			'self.updateNowPlayingInfo(audioId: audioId, audioAsset: audioAsset)\n                            self.updatePlaybackState(isPlaying: true, elapsedTime: audioAsset.getCurrentTime(), duration: audioAsset.getDuration())'
+		],
+		[
+			'self.updateNowPlayingInfo(audioId: audioAsset.assetId, audioAsset: audioAsset)\n                self.updatePlaybackState(isPlaying: true)',
+			'self.updateNowPlayingInfo(audioId: audioAsset.assetId, audioAsset: audioAsset)\n                self.updatePlaybackState(isPlaying: true, elapsedTime: audioAsset.getCurrentTime(), duration: audioAsset.getDuration())'
+		],
+		[
+			'let time = max(call.getDouble(Constant.Time, 0), 0)\n            audioAsset.setCurrentTime(time: time) {\n                call.resolve()\n            }',
+			'let time = max(call.getDouble(Constant.Time, 0), 0)\n            audioAsset.setCurrentTime(time: time) { [weak self] in\n                guard let self else {\n                    call.resolve()\n                    return\n                }\n                if self.showNotification && self.currentlyPlayingAssetId == audioAsset.assetId {\n                    self.updatePlaybackState(isPlaying: audioAsset.isPlaying(), elapsedTime: time, duration: audioAsset.getDuration())\n                }\n                self.notifyPlaybackState(assetId: audioAsset.assetId, reason: "seek", audioAsset: audioAsset)\n                call.resolve()\n            }'
+		],
+		[
+			'notifyListeners("currentTime", data: [\n                "currentTime": currentTime,\n                "assetId": asset.assetId\n            ])',
+			'notifyListeners("currentTime", data: [\n                "currentTime": currentTime,\n                "assetId": asset.assetId\n            ])\n\n            if showNotification && currentlyPlayingAssetId == asset.assetId {\n                let duration = asset.getDuration()\n                updatePlaybackState(\n                    isPlaying: asset.isPlaying(),\n                    elapsedTime: currentTime,\n                    duration: duration.isFinite && duration > 0 ? duration : nil\n                )\n            }'
+		]
 	];
 
 	for (const [from, to] of replacements) {
