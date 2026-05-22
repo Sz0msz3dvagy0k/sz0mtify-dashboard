@@ -288,6 +288,31 @@ const rejectShim = `private extension CAPPluginCall {
 		patched = patched.replaceAll(from, to);
 	}
 
+	const nextPreviousRemoteCommands = `        // Next track command
+        commandCenter.nextTrackCommand.isEnabled = true
+        commandCenter.nextTrackCommand.addTarget { [weak self] _ in
+            guard let self = self, let assetId = self.currentlyPlayingAssetId else {
+                return .noSuchContent
+            }
+            self.notifyPlaybackState(assetId: assetId, reason: "remoteNext")
+            return .success
+        }
+
+        // Previous track command
+        commandCenter.previousTrackCommand.isEnabled = true
+        commandCenter.previousTrackCommand.addTarget { [weak self] _ in
+            guard let self = self, let assetId = self.currentlyPlayingAssetId else {
+                return .noSuchContent
+            }
+            self.notifyPlaybackState(assetId: assetId, reason: "remotePrevious")
+            return .success
+        }
+
+`;
+	if (!patched.includes('commandCenter.nextTrackCommand.addTarget')) {
+		patched = patched.replace('        // Skip forward command', `${nextPreviousRemoteCommands}        // Skip forward command`);
+	}
+
 	if (patched !== source) {
 		writeFileSync(nativeAudioSwiftPlugin, patched);
 		console.log('Patched @capgo/native-audio Swift source for Capacitor SwiftPM compatibility');
