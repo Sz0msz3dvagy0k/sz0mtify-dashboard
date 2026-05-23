@@ -2,70 +2,100 @@
 @use "mixins" as *;
 
 @font-face {
-	font-family: "Sora Local";
-	src: url("/fonts/sora/Sora-wght.woff2") format("woff2");
-	font-weight: 100 800;
-	font-style: normal;
-	font-display: swap;
+  font-family: "Sora Local";
+  src: url("/fonts/sora/Sora-wght.woff2") format("woff2");
+  font-weight: 100 800;
+  font-style: normal;
+  font-display: swap;
 }
 
 @font-face {
-	font-family: "Kalam Local";
-	src: url("/fonts/kalam/Kalam-Light.otf") format("opentype");
-	font-weight: 300;
-	font-style: normal;
-	font-display: swap;
+  font-family: "Kalam Local";
+  src: url("/fonts/kalam/Kalam-Light.otf") format("opentype");
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
 }
 
 @font-face {
-	font-family: "Kalam Local";
-	src: url("/fonts/kalam/Kalam-Regular.otf") format("opentype");
-	font-weight: 400;
-	font-style: normal;
-	font-display: swap;
+  font-family: "Kalam Local";
+  src: url("/fonts/kalam/Kalam-Regular.otf") format("opentype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
 }
 
 @font-face {
-	font-family: "Kalam Local";
-	src: url("/fonts/kalam/Kalam-Bold.otf") format("opentype");
-	font-weight: 700;
-	font-style: normal;
-	font-display: swap;
+  font-family: "Kalam Local";
+  src: url("/fonts/kalam/Kalam-Bold.otf") format("opentype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
 }
 
 :root {
-	color-scheme: dark;
-	font-family:
-		"Sora Local", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-	font-weight: 380;
-	background: $color-bg;
-	color: $color-text;
-	letter-spacing: 0;
+  color-scheme: dark;
+  font-family:
+    "Sora Local",
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  font-weight: 380;
+  background: $color-bg;
+  color: $color-text;
+  letter-spacing: 0;
 }
 
-* { box-sizing: border-box; }
-html { min-height: 100%; background: $color-bg; }
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+  background: $color-bg;
+}
+
 body {
-	margin: 0;
-	min-width: 320px;
-	min-height: 100vh;
-	min-height: 100dvh;
-	overflow-x: hidden;
-	background: $color-bg;
-	color: $color-text;
-	font-size: 15px;
-	line-height: 1.45;
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow-x: hidden;
+  background: $color-bg;
+  color: $color-text;
+  font-size: 15px;
+  line-height: 1.45;
 }
+
 body.mobile-menu-scroll-lock {
-	position: fixed;
-	left: 0;
-	right: 0;
-	width: 100%;
-	overflow: hidden;
+  position: fixed;
+  left: 0;
+  right: 0;
+  width: 100%;
+  overflow: hidden;
 }
-a { color: inherit; text-decoration: none; }
-button, input, select { font: inherit; }
-button, a, input, select {
-	touch-action: manipulation;
+
+a {
+  color: inherit;
+  text-decoration: none;
 }
-button { cursor: pointer; }
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button,
+a,
+input,
+select {
+  touch-action: manipulation;
+}
+
+button {
+  cursor: pointer;
+}

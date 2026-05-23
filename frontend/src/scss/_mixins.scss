@@ -1,38 +1,42 @@
 @use "variables" as *;
 
 @mixin truncate-line {
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-@mixin panel-surface($radius: $radius-md, $background: $color-surface, $border: $color-border) {
-	border: 1px solid $border;
-	border-radius: $radius;
-	background: $background;
+@mixin panel-surface(
+  $radius: $radius-md,
+  $background: $color-surface,
+  $border: $color-border
+) {
+  border: 1px solid $border;
+  border-radius: $radius;
+  background: $background;
 }
 
-@mixin uppercase-label($color: $color-text-dim, $size: 12px, $spacing: .16em) {
-	color: $color;
-	text-transform: uppercase;
-	font-size: $size;
-	letter-spacing: $spacing;
+@mixin uppercase-label($color: $color-text-dim, $size: 12px, $spacing: 0.16em) {
+  color: $color;
+  text-transform: uppercase;
+  font-size: $size;
+  letter-spacing: $spacing;
 }
 
 @mixin interactive-transition($properties...) {
-	transition: $properties;
+  transition: $properties;
 }
 
 @mixin center-flex($justify: center, $display: flex) {
-	display: $display;
-	align-items: center;
-	justify-content: $justify;
+  display: $display;
+  align-items: center;
+  justify-content: $justify;
 }
 
 @mixin control-input {
-	border: 1px solid $color-border-strong;
-	border-radius: $radius-sm;
-	background: $color-ink;
-	color: $color-text;
-	outline: none;
+  border: 1px solid $color-border-strong;
+  border-radius: $radius-sm;
+  background: $color-ink;
+  color: $color-text;
+  outline: none;
 }
