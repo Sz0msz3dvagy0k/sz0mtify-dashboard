@@ -1427,9 +1427,37 @@ tr:focus-within .track-actions-trigger,
 	}
 	.mobile-session-delete {
 		width: 100%;
+		min-height: 42px;
+		display: inline-flex;
+		align-items: center;
 		justify-content: center;
+		gap: 8px;
 		margin-top: 2px;
-		border-top: 1px solid #262626;
+		padding: 0 12px;
+		border: 1px solid rgba(248,113,113,.34);
+		border-radius: 6px;
+		background: rgba(127,29,29,.12);
+		color: #fca5a5;
+		font-size: 13px;
+		font-weight: 640;
+		letter-spacing: 0;
+		text-transform: none;
+		transition: border-color .18s ease, background .18s ease, color .18s ease;
+	}
+	.mobile-session-delete:hover:not(:disabled) {
+		border-color: rgba(248,113,113,.62);
+		background: rgba(127,29,29,.22);
+		color: #fecaca;
+	}
+	.mobile-session-delete:disabled {
+		opacity: .55;
+		cursor: not-allowed;
+	}
+	.mobile-session-delete span {
+		color: inherit;
+		font-size: inherit;
+		letter-spacing: 0;
+		text-transform: none;
 	}
 	.mobile-sync-status-list article {
 		padding: 10px;

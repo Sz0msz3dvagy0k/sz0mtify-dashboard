@@ -263,7 +263,7 @@
 							<strong>{formatSessionTime(session.expires_at)}</strong>
 						</div>
 						<button
-							class="danger-menu-item mobile-session-delete"
+							class="mobile-session-delete"
 							type="button"
 							disabled={deletingSessionId !== null}
 							on:click={() => deleteSession(session)}
