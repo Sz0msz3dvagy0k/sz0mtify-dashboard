@@ -1602,6 +1602,15 @@ tr:focus-within .track-actions-trigger,
 		min-height: 0;
 		gap: 12px;
 	}
+	.player-bar.expanded.lyrics-open .player-swipe-track > .player-swipe-panel:nth-child(2) {
+		display: grid;
+		grid-template-columns: minmax(78px, 96px) minmax(0, 1fr);
+		grid-template-rows: auto minmax(0, 1fr) auto;
+		column-gap: 14px;
+		row-gap: 12px;
+		align-items: stretch;
+		align-content: stretch;
+	}
 	.player-adjacent.expanded .player-expanded-title {
 		width: 100%;
 	}
@@ -1623,8 +1632,13 @@ tr:focus-within .track-actions-trigger,
 		margin-top: 48px;
 	}
 	.player-bar.expanded.lyrics-open .player-expanded-art {
-		width: min(190px, 48vw);
+		grid-column: 1;
+		grid-row: 1;
+		align-self: center;
+		width: 100%;
 		margin-top: 34px;
+		position: relative;
+		z-index: 2;
 	}
 	.player-expanded-main {
 		flex: 1;
@@ -1634,14 +1648,30 @@ tr:focus-within .track-actions-trigger,
 	.player-expanded-title { text-align: center; }
 	.player-expanded-title strong { white-space: normal; font-size: clamp(30px, 9vw, 46px); }
 	.player-bar.expanded.lyrics-open .player-expanded-main {
+		grid-column: 1 / -1;
+		grid-row: 1 / -1;
 		display: grid;
+		grid-template-columns: minmax(78px, 96px) minmax(0, 1fr);
 		grid-template-rows: auto minmax(0, 1fr) auto;
-		gap: 12px;
-		flex: 1 1 auto;
+		column-gap: 14px;
+		row-gap: 12px;
+		align-items: stretch;
+		width: 100%;
 		min-height: 0;
+	}
+	.player-bar.expanded.lyrics-open .player-expanded-title {
+		grid-column: 2;
+		grid-row: 1;
+		align-self: center;
+		min-width: 0;
+		padding-top: 34px;
+		text-align: left;
+		position: relative;
+		z-index: 2;
 	}
 	.player-bar.expanded.lyrics-open .player-expanded-title strong {
 		font-size: clamp(24px, 7vw, 34px);
+		line-height: 1;
 	}
 	.player-bar.expanded.lyrics-open .player-expanded-title span {
 		margin-top: 5px;
@@ -1651,9 +1681,17 @@ tr:focus-within .track-actions-trigger,
 		overflow: hidden;
 		text-align: left;
 	}
+	.player-bar.expanded.lyrics-open .player-lyrics-panel {
+		grid-column: 1 / -1;
+		grid-row: 2;
+		min-height: 0;
+		margin-top: 0;
+		overflow: hidden;
+	}
 	.player-bar.expanded.lyrics-open .lyrics-lines {
 		height: 100%;
 		max-height: none;
+		overflow: auto;
 	}
 	.lyrics-lines p {
 		margin-bottom: 16px;
@@ -1668,9 +1706,13 @@ tr:focus-within .track-actions-trigger,
 		padding-bottom: 4px;
 	}
 	.player-bar.expanded.lyrics-open .player-expanded-controls {
+		grid-column: 1 / -1;
+		grid-row: 3;
 		margin-top: 0;
 		flex: 0 0 auto;
 		gap: 12px;
+		position: relative;
+		z-index: 2;
 	}
 	.player-actions { justify-content: space-between; }
 	.settings-panel { grid-template-columns: 1fr; align-items: stretch; }
