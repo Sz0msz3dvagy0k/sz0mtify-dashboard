@@ -77,29 +77,82 @@ fn set_session_cookie(
 ) {
     let now = unix_now();
     let max_age = expires_at.saturating_sub(now).max(1);
-    let secure = if secure_session_cookie(request_headers) {
-        "; Secure"
-    } else {
-        ""
-    };
+    let secure = secure_session_cookie(request_headers);
+    let secure_attribute = if secure { "; Secure" } else { "" };
+    let same_site = session_cookie_same_site(request_headers, secure);
     if let Ok(value) = HeaderValue::from_str(&format!(
-        "{SESSION_COOKIE_NAME}={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={max_age}{secure}"
+        "{SESSION_COOKIE_NAME}={token}; Path=/; HttpOnly; SameSite={same_site}; Max-Age={max_age}{secure_attribute}"
     )) {
         headers.insert(SET_COOKIE, value);
     }
 }
 
 fn clear_session_cookie(headers: &mut HeaderMap, request_headers: &HeaderMap) {
-    let secure = if secure_session_cookie(request_headers) {
-        "; Secure"
-    } else {
-        ""
-    };
+    let secure = secure_session_cookie(request_headers);
+    let secure_attribute = if secure { "; Secure" } else { "" };
+    let same_site = session_cookie_same_site(request_headers, secure);
     if let Ok(value) = HeaderValue::from_str(&format!(
-        "{SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0{secure}"
+        "{SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite={same_site}; Max-Age=0{secure_attribute}"
     )) {
         headers.insert(SET_COOKIE, value);
     }
+}
+
+fn session_cookie_same_site(headers: &HeaderMap, secure: bool) -> &'static str {
+    if secure && request_is_cross_origin(headers) {
+        "None"
+    } else {
+        "Lax"
+    }
+}
+
+fn request_is_cross_origin(headers: &HeaderMap) -> bool {
+    let Some(origin_host) = origin_host(headers) else {
+        return false;
+    };
+    let Some(request_host) = forwarded_host(headers).or_else(|| host_header(headers)) else {
+        return true;
+    };
+
+    origin_host != request_host
+}
+
+fn origin_host(headers: &HeaderMap) -> Option<String> {
+    let origin = headers.get(ORIGIN)?.to_str().ok()?.trim();
+    let scheme_end = origin.find("://")?;
+    let authority = &origin[scheme_end + 3..];
+    let host_end = authority.find('/').unwrap_or(authority.len());
+    normalized_host(&authority[..host_end])
+}
+
+fn forwarded_host(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get("x-forwarded-host")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(',').next())
+        .and_then(normalized_host)
+}
+
+fn host_header(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get("host")
+        .and_then(|value| value.to_str().ok())
+        .and_then(normalized_host)
+}
+
+fn normalized_host(value: &str) -> Option<String> {
+    let host = value
+        .trim()
+        .trim_matches('"')
+        .rsplit_once('@')
+        .map(|(_, host)| host)
+        .unwrap_or(value.trim())
+        .trim_start_matches('[')
+        .trim_end_matches(']');
+    if host.is_empty() {
+        return None;
+    }
+    Some(host.to_ascii_lowercase())
 }
 
 fn secure_session_cookie(headers: &HeaderMap) -> bool {
@@ -2562,5 +2615,33 @@ mod tests {
         headers.insert(ORIGIN, HeaderValue::from_static("http://localhost:5173"));
 
         assert!(!request_uses_https(&headers));
+    }
+
+    #[test]
+    fn session_cookie_uses_same_site_none_for_secure_cross_origin_app_requests() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "cf-visitor",
+            HeaderValue::from_static(r#"{"scheme":"https"}"#),
+        );
+        headers.insert(ORIGIN, HeaderValue::from_static("capacitor://localhost"));
+        headers.insert("host", HeaderValue::from_static("archive.example.com"));
+
+        assert_eq!(session_cookie_same_site(&headers, true), "None");
+    }
+
+    #[test]
+    fn session_cookie_keeps_lax_for_same_origin_and_plain_http_requests() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            ORIGIN,
+            HeaderValue::from_static("https://archive.example.com"),
+        );
+        headers.insert("host", HeaderValue::from_static("archive.example.com"));
+
+        assert_eq!(session_cookie_same_site(&headers, true), "Lax");
+
+        headers.insert(ORIGIN, HeaderValue::from_static("capacitor://localhost"));
+        assert_eq!(session_cookie_same_site(&headers, false), "Lax");
     }
 }
