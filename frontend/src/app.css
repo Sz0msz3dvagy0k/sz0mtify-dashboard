@@ -1573,12 +1573,22 @@ tr:focus-within .track-actions-trigger,
 		border-right: 0;
 		overflow: auto;
 	}
+	.player-bar.expanded.lyrics-open {
+		overflow: hidden;
+	}
 	.player-bar.expanded .player-swipe-viewport {
 		flex: 1;
 		min-height: 0;
 	}
+	.player-bar.expanded.lyrics-open .player-swipe-viewport {
+		overflow: hidden;
+	}
 	.player-bar.expanded .player-swipe-track {
 		min-height: 100%;
+	}
+	.player-bar.expanded.lyrics-open .player-swipe-track {
+		height: 100%;
+		min-height: 0;
 	}
 	.player-bar.expanded .player-swipe-panel,
 	.player-adjacent.expanded {
@@ -1586,6 +1596,11 @@ tr:focus-within .track-actions-trigger,
 		flex-direction: column;
 		align-items: center;
 		gap: 18px;
+	}
+	.player-bar.expanded.lyrics-open .player-swipe-panel {
+		height: 100%;
+		min-height: 0;
+		gap: 12px;
 	}
 	.player-adjacent.expanded .player-expanded-title {
 		width: 100%;
@@ -1608,8 +1623,8 @@ tr:focus-within .track-actions-trigger,
 		margin-top: 48px;
 	}
 	.player-bar.expanded.lyrics-open .player-expanded-art {
-		width: min(260px, 64vw);
-		margin-top: 36px;
+		width: min(190px, 48vw);
+		margin-top: 34px;
 	}
 	.player-expanded-main {
 		flex: 1;
@@ -1618,11 +1633,27 @@ tr:focus-within .track-actions-trigger,
 	}
 	.player-expanded-title { text-align: center; }
 	.player-expanded-title strong { white-space: normal; font-size: clamp(30px, 9vw, 46px); }
+	.player-bar.expanded.lyrics-open .player-expanded-main {
+		display: grid;
+		grid-template-rows: auto minmax(0, 1fr) auto;
+		gap: 12px;
+		flex: 1 1 auto;
+		min-height: 0;
+	}
+	.player-bar.expanded.lyrics-open .player-expanded-title strong {
+		font-size: clamp(24px, 7vw, 34px);
+	}
+	.player-bar.expanded.lyrics-open .player-expanded-title span {
+		margin-top: 5px;
+	}
 	.player-lyrics-panel {
+		min-height: 0;
+		overflow: hidden;
 		text-align: left;
 	}
-	.lyrics-lines {
-		max-height: min(26vh, 220px);
+	.player-bar.expanded.lyrics-open .lyrics-lines {
+		height: 100%;
+		max-height: none;
 	}
 	.lyrics-lines p {
 		margin-bottom: 16px;
@@ -1631,6 +1662,16 @@ tr:focus-within .track-actions-trigger,
 	}
 	.player-bar.expanded .player-center { margin-top: auto; padding-top: 56px; padding-bottom: 8px; }
 	.player-bar.expanded .player-expanded-controls { margin-top: auto; }
+	.player-bar.expanded.lyrics-open .player-center {
+		margin-top: 0;
+		padding-top: 0;
+		padding-bottom: 4px;
+	}
+	.player-bar.expanded.lyrics-open .player-expanded-controls {
+		margin-top: 0;
+		flex: 0 0 auto;
+		gap: 12px;
+	}
 	.player-actions { justify-content: space-between; }
 	.settings-panel { grid-template-columns: 1fr; align-items: stretch; }
 }
