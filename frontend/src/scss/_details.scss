@@ -1,0 +1,148 @@
+@use "variables" as *;
+@use "mixins" as *;
+
+
+.empty-state, .error-state, .skeleton-card { min-height: 160px; padding: $space-xl; display: grid; place-items: center; text-align: center; color: $color-text-soft; }
+.empty-state strong, .error-state strong { color: $color-text; }
+.empty-state p { margin: $space-sm 0 0; color: $color-text-dim; }
+.empty-mark { width: 36px; height: 36px; border: 1px solid $color-text-faint; border-radius: $radius-pill; margin-bottom: 12px; }
+.skeleton { position: relative; overflow: hidden; background: $color-surface-muted; border-radius: $radius-sm; }
+.skeleton::after { content: ""; position: absolute; inset: 0; transform: translateX(-100%); background: linear-gradient(90deg, transparent, $overlay-light-08, transparent); animation: shimmer 1.35s infinite; }
+.skeleton.block { height: 72px; width: 100%; }
+.skeleton.line { height: 12px; width: 80%; }
+@keyframes shimmer { to { transform: translateX(100%); } }
+
+.login-page {
+	min-height: 100vh;
+	min-height: 100dvh;
+	display: grid;
+	place-items: center;
+	padding:
+		max(24px, env(safe-area-inset-top))
+		max(24px, env(safe-area-inset-right))
+		max(24px, env(safe-area-inset-bottom))
+		max(24px, env(safe-area-inset-left));
+	background:
+		linear-gradient(90deg, $overlay-light-035 1px, transparent 1px) 0 0 / 44px 44px,
+		linear-gradient(0deg, $overlay-light-025 1px, transparent 1px) 0 0 / 44px 44px,
+		$color-bg;
+}
+.login-panel {
+	width: min(420px, 100%);
+	border: 1px solid $color-border;
+	border-radius: $radius-md;
+	background: $overlay-panel;
+	padding: 22px;
+	box-shadow: 0 24px 80px $overlay-dark-42;
+}
+.login-brand { display: flex; align-items: center; gap: 14px; margin-bottom: 28px; }
+.login-mark {
+	width: 52px;
+	height: 52px;
+	display: grid;
+	place-items: center;
+	border: 1px solid $color-border-bright;
+	border-radius: $radius-md;
+	background: $color-surface;
+}
+.login-brand p { margin: 0 0 $space-xs; color: $color-text-dim; text-transform: uppercase; font-size: $space-md; letter-spacing: .16em; }
+.login-brand h1 { margin: 0; font-size: $space-2xl; line-height: 1; }
+.login-form { display: grid; gap: 14px; }
+.login-form label { display: grid; gap: 7px; color: $color-text-soft; font-size: $space-md; text-transform: uppercase; letter-spacing: .14em; }
+.login-input {
+	min-height: 46px;
+	display: grid;
+	grid-template-columns: 20px minmax(0, 1fr);
+	align-items: center;
+	gap: 10px;
+	padding: 0 $space-md;
+	border: 1px solid $color-border-strong;
+	border-radius: $radius-sm;
+	background: $color-ink;
+	color: $color-text-soft;
+}
+.login-input:focus-within { border-color: $color-text-dim; background: $color-surface; }
+.login-input input {
+	width: 100%;
+	min-width: 0;
+	border: 0;
+	outline: 0;
+	background: transparent;
+	color: $color-text;
+	font-size: 16px;
+}
+.login-error { margin: 0; color: $color-text; font-size: 13px; }
+.login-submit { width: 100%; display: inline-flex; justify-content: center; align-items: center; gap: $space-sm; margin-top: $space-xs; }
+.spin { animation: spin .9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.progress { height: $radius-md; background: $color-surface-muted; border: 1px solid $color-border-strong; border-radius: $radius-pill; overflow: hidden; }
+.progress span { display: block; height: 100%; background: $color-text; }
+.mini-stats { display: flex; gap: 18px; margin-top: $space-lg; color: $color-text-soft; }
+.health-panel, .diagnostic-hero { padding: 18px; }
+.settings-panel {
+	display: grid;
+	grid-template-columns: minmax(180px, 1fr) minmax(160px, 220px) minmax(140px, 180px) auto;
+	gap: 14px;
+	align-items: end;
+	margin: 20px 0;
+	padding: $space-lg;
+	border: 1px solid $color-border;
+	border-radius: $radius-md;
+	background: $color-surface;
+}
+.settings-panel h2 { margin: 0; font-size: $space-xl; font-weight: 740; }
+.settings-panel label { display: grid; gap: 7px; color: $color-text-soft; font-size: $space-md; text-transform: uppercase; letter-spacing: .14em; }
+.diagnostic-hero strong { font-size: clamp(64px, 10vw, 124px); font-weight: 780; line-height: .86; display: block; margin: $space-sm 0 18px; }
+.detail-hero { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: $space-xl; padding: 18px; align-items: start; }
+.detail-art { aspect-ratio: 1; overflow: hidden; border-radius: $radius-md; border: 1px solid $color-border; }
+.detail-hero h2 { margin: 0 0 20px; font-size: clamp(36px, 6vw, 76px); font-weight: 780; line-height: .92; }
+.compact { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.bio { max-width: 820px; color: $color-text-secondary; line-height: 1.65; }
+.track-meta-links {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: $space-sm;
+	margin: -$space-sm 0 20px;
+	color: $color-text-soft;
+}
+.track-meta-links a { color: $color-text; }
+.track-meta-links a:hover { text-decoration: underline; }
+.action-row .track-actions-trigger {
+	opacity: 1;
+	pointer-events: auto;
+}
+.track-lyrics-section {
+	margin-top: 22px;
+	padding: 18px;
+	border: 1px solid $color-border;
+	border-radius: $radius-md;
+	background: $color-surface;
+}
+.track-lyrics-section header {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: $space-lg;
+	margin-bottom: 14px;
+}
+.track-lyrics-section header span {
+	color: $color-text-muted;
+	font-size: 12px;
+}
+.track-lyrics-lines {
+	display: grid;
+	gap: 10px;
+	max-width: 760px;
+	color: $color-text-highlight;
+	line-height: 1.65;
+}
+.track-lyrics-lines p { margin: 0; }
+.badge-cloud { display: flex; flex-wrap: wrap; gap: $space-sm; }
+.playlist-track-art { width: 44px; height: 44px; overflow: hidden; border: 1px solid $color-border; border-radius: $radius-sm; background: $color-surface-muted; }
+.playing-indicator { width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; gap: 3px; border: 1px solid $color-text-faint; border-radius: $radius-pill; color: $color-text; }
+.playing-indicator span { width: 3px; height: 12px; border-radius: $radius-pill; background: currentColor; animation: playing-bars .78s ease-in-out infinite; opacity: .88; }
+.playing-indicator span:nth-child(2) { animation-delay: .12s; }
+.playing-indicator span:nth-child(3) { animation-delay: .24s; }
+@keyframes playing-bars { 0%, 100% { transform: scaleY(.38); } 50% { transform: scaleY(1); } }

@@ -1,0 +1,55 @@
+
+$color-bg: #050505;
+$color-text: #f5f5f5;
+$color-panel: #080808;
+$color-ink: #0a0a0a;
+$color-surface: #101010;
+$color-surface-soft: #111;
+$color-surface-raised: #141414;
+$color-surface-muted: #181818;
+$color-border: #262626;
+$color-border-strong: #333;
+$color-border-bright: #404040;
+$color-text-faint: #525252;
+$color-text-dim: #737373;
+$color-text-muted: #8a8a8a;
+$color-text-soft: #a3a3a3;
+$color-text-secondary: #d4d4d4;
+$color-text-highlight: #e5e5e5;
+$color-white: #fff;
+$color-danger: #fca5a5;
+$color-danger-soft: #fecaca;
+$overlay-page: rgba(5, 5, 5, .88);
+$overlay-light-16: rgba(255,255,255,.16);
+$overlay-light-11: rgba(245,245,245,.11);
+$overlay-light-12: rgba(255,255,255,.12);
+$overlay-light-08: rgba(255,255,255,.08);
+$overlay-light-035: rgba(255,255,255,.035);
+$overlay-light-025: rgba(255,255,255,.025);
+$overlay-light-18: rgba(255,255,255,.18);
+$overlay-dark-42: rgba(0,0,0,.42);
+$overlay-dark-45: rgba(0,0,0,.45);
+$overlay-dark-46: rgba(0,0,0,.46);
+$overlay-dark-52: rgba(0,0,0,.52);
+$overlay-panel: rgba(10,10,10,.94);
+$overlay-queue: rgba(8, 8, 8, .94);
+$overlay-danger-border: rgba(248,113,113,.34);
+$overlay-danger-bg: rgba(127,29,29,.12);
+$overlay-danger-border-strong: rgba(248,113,113,.62);
+$overlay-danger-bg-strong: rgba(127,29,29,.22);
+
+$radius-none: 0;
+$radius-sm: 6px;
+$radius-md: 8px;
+$radius-pill: 999px;
+
+$space-xs: 4px;
+$space-sm: 8px;
+$space-md: 12px;
+$space-lg: 16px;
+$space-xl: 24px;
+$space-2xl: 32px;
+
+$breakpoint-desktop: 981px;
+$breakpoint-mobile: 980px;
+$breakpoint-compact: 560px;
