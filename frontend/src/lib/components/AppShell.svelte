@@ -75,7 +75,7 @@
 	$: if (browser) setPageScrollLock(authenticated && mobileMenuOpen);
 
 	onMount(async () => {
-		const session = loadStoredSession();
+		const session = await loadStoredSession();
 		if (!session) {
 			try {
 				const user = await api.me();

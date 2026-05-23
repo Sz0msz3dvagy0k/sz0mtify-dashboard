@@ -18,7 +18,7 @@
 
 		try {
 			const session = await api.login({ username: username.trim(), password });
-			saveAuthSession(session);
+			await saveAuthSession(session);
 			onAuthenticated(session);
 			password = '';
 		} catch (e) {
