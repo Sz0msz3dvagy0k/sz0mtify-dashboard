@@ -184,9 +184,7 @@ impl AppAuth {
             }
         };
 
-        let Some((username, expires_at)) = row else {
-            return None;
-        };
+        let (username, expires_at) = row?;
 
         if expires_at <= now as i64 {
             if let Err(error) = self.logout(token).await {

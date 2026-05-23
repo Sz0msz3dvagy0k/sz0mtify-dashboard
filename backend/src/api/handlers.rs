@@ -1045,7 +1045,7 @@ async fn register_subsonic_scrobble(
     )
     .await
     .map(|_| ())
-    .map_err(|error| TrackStreamError::Upstream(error.into()))
+    .map_err(TrackStreamError::Upstream)
 }
 
 async fn track_subsonic_id(
@@ -1204,9 +1204,7 @@ async fn fetch_subsonic_track_lyrics(
         }
     }
 
-    let Some(artist) = metadata.artist.as_deref() else {
-        return None;
-    };
+    let artist = metadata.artist.as_deref()?;
 
     match subsonic_json_with_client(
         client,
@@ -1585,7 +1583,7 @@ async fn stream_transcode_quality(
     let mode = settings
         .get_value(pool, "stream_transcode_mode")
         .await
-        .map_err(|error| TrackStreamError::Upstream(error.into()))?
+        .map_err(TrackStreamError::Upstream)?
         .unwrap_or_else(|| "never".to_string());
     let should_transcode = match mode.as_str() {
         "always" => true,
@@ -1602,7 +1600,7 @@ async fn stream_transcode_quality(
     let quality = settings
         .get_value(pool, "stream_transcode_quality")
         .await
-        .map_err(|error| TrackStreamError::Upstream(error.into()))?
+        .map_err(TrackStreamError::Upstream)?
         .and_then(|value| value.parse::<u16>().ok())
         .filter(|value| matches!(value, 96 | 128 | 192 | 256 | 320))
         .unwrap_or(192);
@@ -1706,10 +1704,7 @@ fn stream_content_type(metadata: &TrackStreamMetadata, mode: StreamResponseMode)
     }
 }
 
-fn stream_suffix<'a>(
-    metadata: &'a TrackStreamMetadata,
-    mode: StreamResponseMode,
-) -> Option<&'a str> {
+fn stream_suffix(metadata: &TrackStreamMetadata, mode: StreamResponseMode) -> Option<&str> {
     if mode == StreamResponseMode::Transcoded {
         Some("mp3")
     } else {
@@ -2183,7 +2178,7 @@ mod tests {
             headers
                 .get(CACHE_CONTROL)
                 .and_then(|value| value.to_str().ok()),
-            Some("private, max-age=86400")
+            Some("private, no-store, max-age=0")
         );
         assert_eq!(&body[..], b"cdef");
     }
@@ -2336,7 +2331,7 @@ mod tests {
             headers
                 .get(CACHE_CONTROL)
                 .and_then(|value| value.to_str().ok()),
-            Some("private, no-store")
+            Some("private, no-store, max-age=0")
         );
         assert_eq!(&body[..], b"transcoded-mp3");
     }

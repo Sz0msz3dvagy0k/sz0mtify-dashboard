@@ -27,6 +27,7 @@ pub struct ParsedArtistCredit {
 }
 
 impl ParsedArtistCredit {
+    #[cfg(test)]
     pub fn primary_names(&self) -> Vec<&str> {
         self.artists
             .iter()
