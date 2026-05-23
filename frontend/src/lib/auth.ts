@@ -35,7 +35,7 @@ export function saveAuthSession(session: AuthSession) {
 		username: session.username,
 		expires_at: session.expires_at
 	};
-	authSession.set(storedSession);
+	authSession.set({ ...storedSession, token: session.token });
 	if (browser) {
 		localStorage.setItem(
 			STORAGE_KEY,

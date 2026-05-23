@@ -10,8 +10,8 @@ use axum::{
     http::{
         header::{
             ACCEPT_RANGES, CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE,
-            CONTENT_TYPE, ETAG, IF_MODIFIED_SINCE, IF_NONE_MATCH, IF_RANGE, LAST_MODIFIED, RANGE,
-            SET_COOKIE,
+            CONTENT_TYPE, ETAG, FORWARDED, IF_MODIFIED_SINCE, IF_NONE_MATCH, IF_RANGE,
+            LAST_MODIFIED, ORIGIN, RANGE, SET_COOKIE,
         },
         HeaderMap, HeaderName, HeaderValue, StatusCode,
     },
@@ -69,10 +69,19 @@ fn err(message: &str) -> Json<Value> {
     Json(json!({"ok": false, "error": message}))
 }
 
-fn set_session_cookie(headers: &mut HeaderMap, token: &str, expires_at: u64) {
+fn set_session_cookie(
+    headers: &mut HeaderMap,
+    request_headers: &HeaderMap,
+    token: &str,
+    expires_at: u64,
+) {
     let now = unix_now();
     let max_age = expires_at.saturating_sub(now).max(1);
-    let secure = if secure_session_cookie() { "; Secure" } else { "" };
+    let secure = if secure_session_cookie(request_headers) {
+        "; Secure"
+    } else {
+        ""
+    };
     if let Ok(value) = HeaderValue::from_str(&format!(
         "{SESSION_COOKIE_NAME}={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={max_age}{secure}"
     )) {
@@ -80,8 +89,12 @@ fn set_session_cookie(headers: &mut HeaderMap, token: &str, expires_at: u64) {
     }
 }
 
-fn clear_session_cookie(headers: &mut HeaderMap) {
-    let secure = if secure_session_cookie() { "; Secure" } else { "" };
+fn clear_session_cookie(headers: &mut HeaderMap, request_headers: &HeaderMap) {
+    let secure = if secure_session_cookie(request_headers) {
+        "; Secure"
+    } else {
+        ""
+    };
     if let Ok(value) = HeaderValue::from_str(&format!(
         "{SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0{secure}"
     )) {
@@ -89,10 +102,58 @@ fn clear_session_cookie(headers: &mut HeaderMap) {
     }
 }
 
-fn secure_session_cookie() -> bool {
-    env::var("APP_COOKIE_SECURE")
-        .map(|value| value != "0" && !value.eq_ignore_ascii_case("false"))
-        .unwrap_or(true)
+fn secure_session_cookie(headers: &HeaderMap) -> bool {
+    if let Ok(value) = env::var("APP_COOKIE_SECURE") {
+        return value != "0" && !value.eq_ignore_ascii_case("false");
+    }
+
+    request_uses_https(headers)
+}
+
+fn request_uses_https(headers: &HeaderMap) -> bool {
+    header_is_https(headers, "x-forwarded-proto")
+        || forwarded_proto_is_https(headers)
+        || cloudflare_visitor_scheme_is_https(headers)
+        || header_is_https(headers, ORIGIN.as_str())
+}
+
+fn header_is_https(headers: &HeaderMap, name: &str) -> bool {
+    headers
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.trim_start().starts_with("https://") || value.trim() == "https")
+        .unwrap_or(false)
+}
+
+fn forwarded_proto_is_https(headers: &HeaderMap) -> bool {
+    headers
+        .get(FORWARDED)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| {
+            value.split(';').any(|part| {
+                let Some((name, proto)) = part.trim().split_once('=') else {
+                    return false;
+                };
+                name.eq_ignore_ascii_case("proto")
+                    && proto.trim_matches('"').eq_ignore_ascii_case("https")
+            })
+        })
+        .unwrap_or(false)
+}
+
+fn cloudflare_visitor_scheme_is_https(headers: &HeaderMap) -> bool {
+    headers
+        .get("cf-visitor")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| serde_json::from_str::<Value>(value).ok())
+        .and_then(|value| {
+            value
+                .get("scheme")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .map(|scheme| scheme.eq_ignore_ascii_case("https"))
+        .unwrap_or(false)
 }
 
 fn unix_now() -> u64 {
@@ -109,13 +170,19 @@ pub async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
 
 pub async fn login(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(payload): Json<LoginPayload>,
 ) -> impl IntoResponse {
     match state.auth.login(&payload.username, &payload.password).await {
         Ok(Some(session)) => {
-            let mut headers = HeaderMap::new();
-            set_session_cookie(&mut headers, &session.token, session.expires_at);
-            (StatusCode::OK, headers, ok(json!(session))).into_response()
+            let mut response_headers = HeaderMap::new();
+            set_session_cookie(
+                &mut response_headers,
+                &headers,
+                &session.token,
+                session.expires_at,
+            );
+            (StatusCode::OK, response_headers, ok(json!(session))).into_response()
         }
         Ok(None) => (StatusCode::UNAUTHORIZED, err("invalid_credentials")).into_response(),
         Err(error) => {
@@ -142,7 +209,7 @@ pub async fn logout(State(state): State<Arc<AppState>>, headers: HeaderMap) -> i
     }
 
     let mut response_headers = HeaderMap::new();
-    clear_session_cookie(&mut response_headers);
+    clear_session_cookie(&mut response_headers, &headers);
     (
         StatusCode::OK,
         response_headers,
@@ -159,7 +226,11 @@ pub async fn active_sessions(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    match state.auth.active_sessions(app_session_token(&headers)).await {
+    match state
+        .auth
+        .active_sessions(app_session_token(&headers))
+        .await
+    {
         Ok(sessions) => (StatusCode::OK, ok(json!(sessions))),
         Err(error) => {
             warn!(error = %error, "failed to load active sessions");
@@ -2459,5 +2530,37 @@ mod tests {
         register_track_now_playing(&pool, 1).await.unwrap();
         register_track_scrobble(&pool, 1).await.unwrap();
         server.await.unwrap();
+    }
+
+    #[test]
+    fn session_cookie_security_detects_https_proxy_headers() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-proto", HeaderValue::from_static("https"));
+
+        assert!(request_uses_https(&headers));
+
+        headers.clear();
+        headers.insert(
+            FORWARDED,
+            HeaderValue::from_static("for=192.0.2.60;proto=https"),
+        );
+
+        assert!(request_uses_https(&headers));
+
+        headers.clear();
+        headers.insert(
+            "cf-visitor",
+            HeaderValue::from_static(r#"{"scheme":"https"}"#),
+        );
+
+        assert!(request_uses_https(&headers));
+    }
+
+    #[test]
+    fn session_cookie_security_allows_plain_http_without_override() {
+        let mut headers = HeaderMap::new();
+        headers.insert(ORIGIN, HeaderValue::from_static("http://localhost:5173"));
+
+        assert!(!request_uses_https(&headers));
     }
 }
