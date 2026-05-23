@@ -25,7 +25,7 @@
 	import { currentNetworkStatus, initNetworkStatus } from '$lib/mobileNetwork';
 	import { loadLocalMedia } from '$lib/localMedia';
 	import { warmStreamToken } from '$lib/player';
-	import type { AuthSession, PlaylistSummary } from '$lib/types';
+	import type { AuthSession } from '$lib/types';
 	import { onDestroy, onMount, tick } from 'svelte';
 	import LoginPage from './LoginPage.svelte';
 	import PlayerBar from './PlayerBar.svelte';
@@ -49,7 +49,6 @@
 	const swipeDistance = 56;
 	const swipeOffAxisLimit = 70;
 
-	let playlists: PlaylistSummary[] = [];
 	let authChecked = false;
 	let authenticated = false;
 	let accountName = '';
@@ -82,7 +81,6 @@
 				void initNetworkStatus();
 				void loadLocalMedia();
 				void warmStreamToken().catch((error) => console.warn('Unable to warm stream token', error));
-				await loadShellData();
 			} catch {
 				authChecked = true;
 				return;
@@ -99,13 +97,11 @@
 			accountName = user.username;
 			authenticated = true;
 			void warmStreamToken().catch((error) => console.warn('Unable to warm stream token', error));
-			await loadShellData();
 		} catch {
 			const status = await currentNetworkStatus();
 			if (!status.connected) {
 				accountName = session.username;
 				authenticated = true;
-				await loadShellData();
 			} else {
 				clearAuthSession();
 			}
@@ -118,23 +114,17 @@
 		if (searchTimer) clearTimeout(searchTimer);
 	});
 
-	async function loadShellData() {
-		playlists = await api.playlists().catch(() => []);
-	}
-
 	async function handleAuthenticated(session: AuthSession) {
 		accountName = session.username;
 		authenticated = true;
 		void initNetworkStatus();
 		void loadLocalMedia();
 		void warmStreamToken().catch((error) => console.warn('Unable to warm stream token', error));
-		await loadShellData();
 	}
 
 	async function signOut() {
 		await api.logout().catch(() => null);
 		clearAuthSession();
-		playlists = [];
 		authenticated = false;
 		accountName = '';
 		mobileMenuOpen = false;
@@ -270,14 +260,6 @@
 					</a>
 				{/each}
 			</nav>
-			{#if playlists.length}
-				<div class="sidebar-section">
-					<span>Playlists</span>
-					{#each playlists.slice(0, 8) as playlist}
-						<a class:active={$page.url.pathname === `/playlists/${encodeURIComponent(playlist.id)}`} href={`/playlists/${encodeURIComponent(playlist.id)}`} on:click={closeMobileMenu}>{playlist.name}</a>
-					{/each}
-				</div>
-			{/if}
 		</aside>
 		<div class="main-column">
 			<header class="topbar">
