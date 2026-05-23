@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { Loader2, MoreHorizontal, Trash2 } from 'lucide-svelte';
+	import { ChevronDown, ChevronUp, Loader2, MoreHorizontal, Trash2 } from 'lucide-svelte';
 	import { api } from '$lib/api';
 	import { clearAuthSession } from '$lib/auth';
 	import type { ActiveSession, SyncStatus } from '$lib/types';
@@ -18,6 +18,7 @@
 	let error = '';
 	let busy = '';
 	let openSessionMenuId: string | null = null;
+	let expandedSessionId: string | null = null;
 	let deletingSessionId: string | null = null;
 	let sessionTableRoot: HTMLDivElement | null = null;
 	let transcodeMode = 'never';
@@ -48,6 +49,10 @@
 			hour: '2-digit',
 			minute: '2-digit'
 		}).format(new Date(value * 1000));
+	}
+
+	function displayCell(value: string | number | null | undefined) {
+		return value === null || value === undefined || value === '' ? '—' : String(value);
 	}
 
 	async function saveTranscoding() {
@@ -90,6 +95,10 @@
 
 	function toggleSessionMenu(sessionId: string) {
 		openSessionMenuId = openSessionMenuId === sessionId ? null : sessionId;
+	}
+
+	function toggleSessionDetails(sessionId: string) {
+		expandedSessionId = expandedSessionId === sessionId ? null : sessionId;
 	}
 
 	async function deleteSession(session: ActiveSession) {
@@ -164,8 +173,8 @@
 	</label>
 	<button class="button" disabled={!!busy} on:click={saveTranscoding}>Save Playback</button>
 </section>
-<div class="table-wrap" bind:this={sessionTableRoot}>
-	<table>
+<div class="table-wrap session-table-wrap" bind:this={sessionTableRoot}>
+	<table class="session-table">
 		<thead>
 			<tr>
 				<th>Session</th>
@@ -218,6 +227,102 @@
 			{/each}
 		</tbody>
 	</table>
+	<div class="mobile-session-list">
+		{#each sessions as session}
+			<article class:open={expandedSessionId === session.session_id}>
+				<div class="mobile-session-main">
+					<div>
+						<strong>{session.session_id}</strong>
+						{#if session.current}<span>Current</span>{/if}
+					</div>
+					<div class="mobile-session-seen">
+						<span>{formatSessionTime(session.last_seen_at)}</span>
+						<button
+							class="icon-button expand-toggle"
+							type="button"
+							aria-label={`${expandedSessionId === session.session_id ? 'Hide' : 'Show'} details for ${session.session_id}`}
+							aria-expanded={expandedSessionId === session.session_id}
+							on:click={() => toggleSessionDetails(session.session_id)}
+						>
+							{#if expandedSessionId === session.session_id}<ChevronUp size={18} />{:else}<ChevronDown size={18} />{/if}
+						</button>
+					</div>
+				</div>
+				{#if expandedSessionId === session.session_id}
+					<div class="mobile-session-details">
+						<div>
+							<span>User</span>
+							<strong>{session.username}</strong>
+						</div>
+						<div>
+							<span>Created</span>
+							<strong>{formatSessionTime(session.created_at)}</strong>
+						</div>
+						<div>
+							<span>Expires</span>
+							<strong>{formatSessionTime(session.expires_at)}</strong>
+						</div>
+						<button
+							class="danger-menu-item mobile-session-delete"
+							type="button"
+							disabled={deletingSessionId !== null}
+							on:click={() => deleteSession(session)}
+						>
+							{#if deletingSessionId === session.session_id}<Loader2 size={16} />{:else}<Trash2 size={16} />{/if}
+							<span>Delete session</span>
+						</button>
+					</div>
+				{/if}
+			</article>
+		{/each}
+	</div>
 </div>
-<DataTable columns={['ID', 'Source', 'Last Sync', 'Status', 'Error']} rows={status} />
+<div class="table-wrap sync-status-wrap">
+	<table class="sync-status-table">
+		<thead>
+			<tr>
+				<th>ID</th>
+				<th>Source</th>
+				<th>Last Sync</th>
+				<th>Status</th>
+				<th>Error</th>
+			</tr>
+		</thead>
+		<tbody>
+			{#each status as row}
+				<tr>
+					<td>{row[0]}</td>
+					<td>{displayCell(row[1])}</td>
+					<td>{displayCell(row[2])}</td>
+					<td>{displayCell(row[3])}</td>
+					<td>{displayCell(row[4])}</td>
+				</tr>
+			{/each}
+		</tbody>
+	</table>
+	<div class="mobile-sync-status-list">
+		{#each status as row}
+			<article>
+				<div class="mobile-sync-status-main">
+					<strong>{displayCell(row[1])}</strong>
+					<span>{displayCell(row[3])}</span>
+				</div>
+				<div class="mobile-sync-status-details">
+					<div>
+						<span>ID</span>
+						<strong>{row[0]}</strong>
+					</div>
+					<div>
+						<span>Last Sync</span>
+						<strong>{displayCell(row[2])}</strong>
+					</div>
+					<div>
+						<span>Error</span>
+						<strong>{displayCell(row[4])}</strong>
+					</div>
+				</div>
+			</article>
+		{/each}
+	</div>
+</div>
 <DataTable columns={['Setting', 'Value']} rows={safeSettings} />

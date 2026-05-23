@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import {
@@ -61,6 +62,7 @@
 	let swipeStartX = 0;
 	let swipeStartY = 0;
 	let trackedSwipe: 'open' | 'close' | null = null;
+	let lockedScrollY = 0;
 	$: current = nav.find((item) => $page.url.pathname.startsWith(item.href)) ?? nav[0];
 	$: currentLabel = $page.url.pathname.startsWith('/search') ? 'Search' : $page.url.pathname.startsWith('/tracks') ? 'Track' : current.label;
 	$: if ($page.url.pathname === '/search') {
@@ -70,6 +72,7 @@
 			syncedSearchParam = queryParam;
 		}
 	}
+	$: if (browser) setPageScrollLock(authenticated && mobileMenuOpen);
 
 	onMount(async () => {
 		const session = loadStoredSession();
@@ -112,6 +115,7 @@
 
 	onDestroy(() => {
 		if (searchTimer) clearTimeout(searchTimer);
+		setPageScrollLock(false);
 	});
 
 	async function handleAuthenticated(session: AuthSession) {
@@ -133,6 +137,24 @@
 
 	function closeMobileMenu() {
 		mobileMenuOpen = false;
+	}
+
+	function setPageScrollLock(locked: boolean) {
+		if (!browser) return;
+		const body = document.body;
+		const isLocked = body.classList.contains('mobile-menu-scroll-lock');
+		if (locked === isLocked) return;
+
+		if (locked) {
+			lockedScrollY = window.scrollY;
+			body.classList.add('mobile-menu-scroll-lock');
+			body.style.top = `-${lockedScrollY}px`;
+			return;
+		}
+
+		body.classList.remove('mobile-menu-scroll-lock');
+		body.style.top = '';
+		window.scrollTo(0, lockedScrollY);
 	}
 
 	async function openMobileSearch() {
