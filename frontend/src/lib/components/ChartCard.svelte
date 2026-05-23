@@ -1,35 +1,44 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
-	import * as echarts from 'echarts/core';
-	import { BarChart, HeatmapChart, LineChart, PieChart, ScatterChart, TreemapChart } from 'echarts/charts';
-	import {
-		GridComponent,
-		LegendComponent,
-		TooltipComponent,
-		VisualMapComponent
-	} from 'echarts/components';
-	import { CanvasRenderer } from 'echarts/renderers';
-	import type { EChartsCoreOption } from 'echarts/core';
-
-	echarts.use([
-		BarChart,
-		HeatmapChart,
-		LineChart,
-		PieChart,
-		ScatterChart,
-		TreemapChart,
-		GridComponent,
-		LegendComponent,
-		TooltipComponent,
-		VisualMapComponent,
-		CanvasRenderer
-	]);
+	import type { ECharts, EChartsCoreOption } from 'echarts/core';
 
 	export let title = '';
 	export let option: EChartsCoreOption;
 	export let height = 280;
 	let node: HTMLDivElement;
-	let chart: echarts.ECharts | null = null;
+	let chart: ECharts | null = null;
+	let mounted = false;
+	let loadError = '';
+	let removeResize: (() => void) | null = null;
+
+	type EChartsCore = typeof import('echarts/core');
+
+	let chartModules: Promise<EChartsCore> | null = null;
+
+	function loadECharts(): Promise<EChartsCore> {
+		chartModules ??= Promise.all([
+			import('echarts/core'),
+			import('echarts/charts'),
+			import('echarts/components'),
+			import('echarts/renderers')
+		]).then(([echarts, charts, components, renderers]) => {
+			echarts.use([
+				charts.BarChart,
+				charts.HeatmapChart,
+				charts.LineChart,
+				charts.PieChart,
+				charts.ScatterChart,
+				charts.TreemapChart,
+				components.GridComponent,
+				components.LegendComponent,
+				components.TooltipComponent,
+				components.VisualMapComponent,
+				renderers.CanvasRenderer
+			]);
+			return echarts;
+		});
+		return chartModules;
+	}
 
 	$: if (chart && option) chart.setOption(baseOption(option), true);
 
@@ -48,17 +57,34 @@
 	}
 
 	onMount(() => {
-		chart = echarts.init(node, undefined, { renderer: 'canvas' });
-		chart.setOption(baseOption(option), true);
-		const resize = () => chart?.resize();
-		window.addEventListener('resize', resize);
-		return () => window.removeEventListener('resize', resize);
+		mounted = true;
+		void loadECharts()
+			.then((echarts) => {
+				if (!mounted) return;
+
+				chart = echarts.init(node, undefined, { renderer: 'canvas' });
+				chart.setOption(baseOption(option), true);
+				const resize = () => chart?.resize();
+				window.addEventListener('resize', resize);
+				removeResize = () => window.removeEventListener('resize', resize);
+			})
+			.catch((error) => {
+				loadError = error instanceof Error ? error.message : 'Unable to load chart renderer';
+			});
 	});
 
-	onDestroy(() => chart?.dispose());
+	onDestroy(() => {
+		mounted = false;
+		removeResize?.();
+		chart?.dispose();
+	});
 </script>
 
 <section class="chart-card">
 	<header>{title}</header>
-	<div bind:this={node} style={`height:${height}px`}></div>
+	{#if loadError}
+		<div class="chart-error" style={`height:${height}px`}>{loadError}</div>
+	{:else}
+		<div bind:this={node} style={`height:${height}px`}></div>
+	{/if}
 </section>
