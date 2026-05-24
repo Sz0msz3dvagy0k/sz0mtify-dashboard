@@ -21,6 +21,7 @@
 	let itemsPerPage = 18;
 	let pageIndex = 1;
 	let syncedPageIndex = 1;
+	let pendingPageIndex: number | null = null;
 
 	async function load() {
 		loading = true;
@@ -71,13 +72,17 @@
 	$: visibleAlbums = detail?.albums.slice(pageStart, pageStart + itemsPerPage) ?? [];
 	$: if (pageIndex > Math.max(1, Math.ceil((detail?.albums.length ?? 0) / itemsPerPage))) pageIndex = 1;
 	$: urlPageIndex = pageFromUrl();
-	$: if (urlPageIndex !== syncedPageIndex) {
+	$: if (pendingPageIndex !== null && urlPageIndex === pendingPageIndex) pendingPageIndex = null;
+	$: if (pendingPageIndex === null && urlPageIndex !== syncedPageIndex) {
 		syncedPageIndex = urlPageIndex;
 		pageIndex = urlPageIndex;
 	}
-	$: if (browser && !loading && pageIndex !== syncedPageIndex) {
-		syncedPageIndex = pageIndex;
-		void goto(pageUrl(pageIndex), { replaceState: true, noScroll: true, keepFocus: true });
+
+	function rememberPage(nextPage: number) {
+		if (!browser) return;
+		syncedPageIndex = nextPage;
+		pendingPageIndex = nextPage;
+		void goto(pageUrl(nextPage), { replaceState: true, noScroll: true, keepFocus: true });
 	}
 </script>
 
@@ -108,5 +113,5 @@
 			<AlbumCard id={album[0]} title={album[1]} artist={artist[1]} year={album[2]} coverArtId={album[3]} href={detailHref(`/albums/${album[0]}`)} />
 		{/each}
 	</div>
-	<ItemsPerPage bind:value={itemsPerPage} bind:page={pageIndex} total={detail.albums.length} shown={visibleAlbums.length} />
+	<ItemsPerPage bind:value={itemsPerPage} bind:page={pageIndex} total={detail.albums.length} shown={visibleAlbums.length} onPageChange={rememberPage} />
 {/if}

@@ -41,6 +41,7 @@
 	let itemsPerPage = 18;
 	let page = 1;
 	let syncedPage = 1;
+	let pendingPage: number | null = null;
 
 	async function load() {
 		loading = true;
@@ -98,13 +99,10 @@
 	}));
 	$: if (page > Math.max(1, Math.ceil(filtered.length / itemsPerPage))) page = 1;
 	$: urlPage = pageFromUrl();
-	$: if (urlPage !== syncedPage) {
+	$: if (pendingPage !== null && urlPage === pendingPage) pendingPage = null;
+	$: if (pendingPage === null && urlPage !== syncedPage) {
 		syncedPage = urlPage;
 		page = urlPage;
-	}
-	$: if (browser && !loading && page !== syncedPage) {
-		syncedPage = page;
-		void goto(pageUrl(page), { replaceState: true, noScroll: true, keepFocus: true });
 	}
 
 	onMount(load);
@@ -126,6 +124,13 @@
 
 	function detailHref(path: string) {
 		return `${path}?from=${encodeURIComponent(pageUrl(page))}`;
+	}
+
+	function rememberPage(nextPage: number) {
+		if (!browser) return;
+		syncedPage = nextPage;
+		pendingPage = nextPage;
+		void goto(pageUrl(nextPage), { replaceState: true, noScroll: true, keepFocus: true });
 	}
 
 	function albumArtistName(album: AlbumTuple): string {
@@ -211,7 +216,7 @@
 				<AlbumCard id={album[0]} title={album[1]} artist={albumArtistName(album)} year={album[3]} genre={album[4]} coverArtId={album[5]} href={detailHref(`/albums/${album[0]}`)} />
 			{/each}
 		</div>
-		<ItemsPerPage bind:value={itemsPerPage} bind:page total={filtered.length} shown={visibleAlbums.length} />
+		<ItemsPerPage bind:value={itemsPerPage} bind:page total={filtered.length} shown={visibleAlbums.length} onPageChange={rememberPage} />
 	{:else}
 		<EmptyState title="No albums match" />
 	{/if}
