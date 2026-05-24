@@ -1,11 +1,12 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { page } from '$app/stores';
-	import { goto } from '$app/navigation';
+	import { afterNavigate, goto } from '$app/navigation';
 	import {
 		Album,
 		AudioLines,
 		BarChart3,
+		ChevronLeft,
 		Compass,
 		Disc3,
 		HardDrive,
@@ -61,10 +62,13 @@
 	let searchInput: HTMLInputElement;
 	let swipeStartX = 0;
 	let swipeStartY = 0;
-	let trackedSwipe: 'open' | 'close' | null = null;
+	let trackedSwipe: 'open' | 'close' | 'back' | null = null;
 	let lockedScrollY = 0;
+	let appBackStack: string[] = [];
+	let navigatingBackTo: string | null = null;
 	$: current = nav.find((item) => $page.url.pathname.startsWith(item.href)) ?? nav[0];
 	$: currentLabel = $page.url.pathname.startsWith('/search') ? 'Search' : $page.url.pathname.startsWith('/tracks') ? 'Track' : current.label;
+	$: showBackButton = isDetailRoute($page.url.pathname);
 	$: if ($page.url.pathname === '/search') {
 		const queryParam = $page.url.searchParams.get('q') ?? '';
 		if (queryParam !== syncedSearchParam) {
@@ -73,6 +77,32 @@
 		}
 	}
 	$: if (browser) setPageScrollLock(authenticated && mobileMenuOpen);
+
+	afterNavigate((navigation) => {
+		if (!browser) return;
+		const from = navigation.from?.url;
+		const to = navigation.to?.url;
+		if (!to) return;
+
+		const toPath = routePath(to);
+		if (navigatingBackTo === toPath) {
+			navigatingBackTo = null;
+			return;
+		}
+
+		if (!from || from.origin !== to.origin || from.href === to.href) return;
+
+		if (navigation.type === 'popstate') {
+			const targetIndex = appBackStack.lastIndexOf(toPath);
+			if (targetIndex >= 0) appBackStack = appBackStack.slice(0, targetIndex);
+			return;
+		}
+
+		const fromPath = routePath(from);
+		if (appBackStack[appBackStack.length - 1] !== fromPath) {
+			appBackStack = [...appBackStack, fromPath].slice(-24);
+		}
+	});
 
 	onMount(async () => {
 		const session = await loadStoredSession();
@@ -196,6 +226,57 @@
 		if (!debounced) syncedSearchParam = query;
 	}
 
+	function isDetailRoute(pathname: string) {
+		return /^\/(albums|artists|playlists|tracks)\/[^/]+$/.test(pathname);
+	}
+
+	function routePath(url: URL) {
+		return `${url.pathname}${url.search}${url.hash}`;
+	}
+
+	function fallbackBackPath(pathname: string) {
+		if (pathname.startsWith('/artists/')) return '/artists';
+		if (pathname.startsWith('/playlists/')) return '/playlists';
+		return '/albums';
+	}
+
+	function returnTarget(value: string | null) {
+		if (!value || !value.startsWith('/') || value.startsWith('//')) return null;
+		const currentPath = routePath($page.url);
+		return value === currentPath ? null : value;
+	}
+
+	async function goBack() {
+		const explicitTarget = returnTarget($page.url.searchParams.get('from'));
+		if (explicitTarget) {
+			if (appBackStack[appBackStack.length - 1] === explicitTarget) {
+				appBackStack = appBackStack.slice(0, -1);
+			}
+			navigatingBackTo = explicitTarget;
+			await goto(explicitTarget, { replaceState: true });
+			return;
+		}
+
+		const target = appBackStack[appBackStack.length - 1];
+		if (target) {
+			appBackStack = appBackStack.slice(0, -1);
+			navigatingBackTo = target;
+			await goto(target, { replaceState: true });
+			return;
+		}
+
+		await goto(fallbackBackPath($page.url.pathname));
+	}
+
+	function isBackSwipeIgnoredTarget(target: EventTarget | null) {
+		if (!(target instanceof Element)) return false;
+		return Boolean(
+			target.closest(
+				'button, a, input, textarea, select, [role="button"], [role="slider"], .swipe-queue-target, .player-bar, .search-overlay, .sidebar'
+			)
+		);
+	}
+
 	function isMobileViewport() {
 		return window.innerWidth <= mobileMenuBreakpoint;
 	}
@@ -213,7 +294,12 @@
 		}
 
 		const drawerWidth = Math.min(300, window.innerWidth * 0.84);
-		trackedSwipe = mobileMenuOpen && touch.clientX <= drawerWidth ? 'close' : null;
+		if (mobileMenuOpen) {
+			trackedSwipe = touch.clientX <= drawerWidth ? 'close' : null;
+			return;
+		}
+
+		trackedSwipe = showBackButton && !isBackSwipeIgnoredTarget(event.target) ? 'back' : null;
 	}
 
 	function handleTouchMove(event: TouchEvent) {
@@ -236,6 +322,11 @@
 		if (trackedSwipe === 'close' && deltaX <= -swipeDistance) {
 			closeMobileMenu();
 			trackedSwipe = null;
+		}
+
+		if (trackedSwipe === 'back' && deltaX >= swipeDistance) {
+			trackedSwipe = null;
+			void goBack();
 		}
 	}
 
@@ -286,10 +377,17 @@
 		<div class="main-column">
 			<header class="topbar">
 				<div class="topbar-heading">
-					<button class="icon-button menu-button" aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'} aria-expanded={mobileMenuOpen} on:click={() => (mobileMenuOpen = !mobileMenuOpen)}>
-						{#if mobileMenuOpen}<X size={20} strokeWidth={1.7} />{:else}<Menu size={20} strokeWidth={1.7} />{/if}
-					</button>
-					<div>
+					<div class="topbar-nav">
+						<button class="icon-button menu-button" aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'} aria-expanded={mobileMenuOpen} on:click={() => (mobileMenuOpen = !mobileMenuOpen)}>
+							{#if mobileMenuOpen}<X size={20} strokeWidth={1.7} />{:else}<Menu size={20} strokeWidth={1.7} />{/if}
+						</button>
+						{#if showBackButton}
+							<button class="icon-button back-button" aria-label="Go back" on:click={goBack}>
+								<ChevronLeft size={20} strokeWidth={1.8} />
+							</button>
+						{/if}
+					</div>
+					<div class="topbar-title">
 						<p>Music analytics</p>
 						<h1>{currentLabel}</h1>
 					</div>

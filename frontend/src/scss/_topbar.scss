@@ -116,8 +116,19 @@
   min-width: 0;
 }
 
+.topbar-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+
 .icon-button.mobile-search-button {
   display: none;
+}
+
+.back-button {
+  flex: 0 0 auto;
 }
 
 .search-overlay {

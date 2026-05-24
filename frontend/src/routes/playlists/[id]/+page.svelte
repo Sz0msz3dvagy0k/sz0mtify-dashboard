@@ -58,6 +58,10 @@
 		playQueue(queue(), startIndex);
 	}
 
+	function detailHref(path: string) {
+		return `${path}?from=${encodeURIComponent($page.url.pathname + $page.url.search)}`;
+	}
+
 	async function savePlaylistOffline() {
 		if (!detail || downloadingPlaylist) return;
 		downloadingPlaylist = true;
@@ -173,16 +177,16 @@
 							</div>
 						</td>
 						<td>
-							<a class="playlist-track-title table-inline-link" href={`/tracks/${track[0]}`} on:click|stopPropagation>{track[1]}</a>
+							<a class="playlist-track-title table-inline-link" href={detailHref(`/tracks/${track[0]}`)} on:click|stopPropagation>{track[1]}</a>
 							{#if track[8]}
-								<a class="playlist-track-artist artist-name table-inline-link muted-link" href={`/artists/${track[8]}`} on:click|stopPropagation>{track[2] ?? 'Unknown artist'}</a>
+								<a class="playlist-track-artist artist-name table-inline-link muted-link" href={detailHref(`/artists/${track[8]}`)} on:click|stopPropagation>{track[2] ?? 'Unknown artist'}</a>
 							{:else}
 								<span class="playlist-track-artist artist-name">{track[2] ?? 'Unknown artist'}</span>
 							{/if}
 						</td>
 						<td>
 							{#if track[3]}
-								<a class="table-inline-link muted-link" href={`/albums/${track[3]}`} on:click|stopPropagation>{track[4] ?? track[7] ?? '—'}</a>
+								<a class="table-inline-link muted-link" href={detailHref(`/albums/${track[3]}`)} on:click|stopPropagation>{track[4] ?? track[7] ?? '—'}</a>
 							{:else}
 								{track[4] ?? track[7] ?? '—'}
 							{/if}
@@ -191,7 +195,7 @@
 						<td>
 							<TrackActionsMenu
 								track={trackToQueueItem(track, detail)}
-								artistHref={track[8] ? `/artists/${track[8]}` : null}
+								artistHref={track[8] ? detailHref(`/artists/${track[8]}`) : null}
 								onDownload={() => saveTrackOffline(track, index)}
 								downloaded={downloadedTrackIds.has(track[0])}
 								downloading={downloadingTracks.has(track[0])}
