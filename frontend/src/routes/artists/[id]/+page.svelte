@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
+	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api';
@@ -18,6 +20,7 @@
 	let loading = true;
 	let itemsPerPage = 18;
 	let pageIndex = 1;
+	let syncedPageIndex = 1;
 
 	async function load() {
 		loading = true;
@@ -38,6 +41,26 @@
 		}
 	}
 	onMount(load);
+
+	function pageFromUrl() {
+		const value = Number($page.url.searchParams.get('page'));
+		return Number.isFinite(value) && value > 0 ? Math.floor(value) : 1;
+	}
+
+	function pageUrl(index: number) {
+		const url = new URL($page.url);
+		if (index <= 1) {
+			url.searchParams.delete('page');
+		} else {
+			url.searchParams.set('page', String(index));
+		}
+		return `${url.pathname}${url.search}${url.hash}`;
+	}
+
+	function detailHref(path: string) {
+		return `${path}?from=${encodeURIComponent(pageUrl(pageIndex))}`;
+	}
+
 	$: artist = detail?.artist;
 	$: artistStorage = storage?.size_by_artist.find((row) => row[0] === artist?.[0]);
 	$: representativeCoverArtId = detail?.albums.find((album) => album[3])?.[3] ?? resolvedArtistCoverArtId;
@@ -47,6 +70,15 @@
 	$: pageStart = (pageIndex - 1) * itemsPerPage;
 	$: visibleAlbums = detail?.albums.slice(pageStart, pageStart + itemsPerPage) ?? [];
 	$: if (pageIndex > Math.max(1, Math.ceil((detail?.albums.length ?? 0) / itemsPerPage))) pageIndex = 1;
+	$: urlPageIndex = pageFromUrl();
+	$: if (urlPageIndex !== syncedPageIndex) {
+		syncedPageIndex = urlPageIndex;
+		pageIndex = urlPageIndex;
+	}
+	$: if (browser && !loading && pageIndex !== syncedPageIndex) {
+		syncedPageIndex = pageIndex;
+		void goto(pageUrl(pageIndex), { replaceState: true, noScroll: true, keepFocus: true });
+	}
 </script>
 
 {#if loading}
@@ -73,7 +105,7 @@
 	</section>
 	<div class="media-grid">
 		{#each visibleAlbums as album}
-			<AlbumCard id={album[0]} title={album[1]} artist={artist[1]} year={album[2]} coverArtId={album[3]} />
+			<AlbumCard id={album[0]} title={album[1]} artist={artist[1]} year={album[2]} coverArtId={album[3]} href={detailHref(`/albums/${album[0]}`)} />
 		{/each}
 	</div>
 	<ItemsPerPage bind:value={itemsPerPage} bind:page={pageIndex} total={detail.albums.length} shown={visibleAlbums.length} />

@@ -10,6 +10,7 @@
 	export let year: number | null = null;
 	export let genre: string | null = null;
 	export let coverArtId: string | null = null;
+	export let href: string | null = null;
 
 	let resolvedCoverArtId: string | null = null;
 
@@ -29,7 +30,7 @@
 	$: imageUrl = coverUrl(coverArtId ?? resolvedCoverArtId);
 </script>
 
-<a class="media-card" href={`/albums/${id}`}>
+<a class="media-card" href={href ?? `/albums/${id}`}>
 	<div class="media-cover">
 		<ImageWithFallback src={imageUrl} alt={title} />
 	</div>
