@@ -27,6 +27,7 @@
 	import { currentNetworkStatus, initNetworkStatus } from '$lib/mobileNetwork';
 	import { loadLocalMedia } from '$lib/localMedia';
 	import { warmStreamToken } from '$lib/player';
+	import { initTheme } from '$lib/theme';
 	import type { AuthSession } from '$lib/types';
 	import { onDestroy, onMount, tick } from 'svelte';
 	import LoginPage from './LoginPage.svelte';
@@ -105,6 +106,7 @@
 	});
 
 	onMount(async () => {
+		initTheme();
 		const session = await loadStoredSession();
 		if (!session) {
 			try {

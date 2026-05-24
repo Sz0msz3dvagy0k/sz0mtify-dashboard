@@ -28,10 +28,10 @@ select {
 .button {
   min-height: 42px;
   padding: 0 14px;
-  border: 1px solid $color-text;
+  border: 1px solid $color-accent;
   border-radius: $radius-sm;
-  background: $color-text;
-  color: $color-bg;
+  background: $color-accent;
+  color: $color-accent-contrast;
 
   @include center-flex(center, inline-flex);
 
@@ -44,8 +44,8 @@ select {
 
 .button.ghost {
   background: transparent;
-  color: $color-text;
-  border-color: $color-border-bright;
+  color: $color-accent;
+  border-color: $color-accent-border;
 }
 
 .button:hover {
@@ -192,15 +192,15 @@ select {
 }
 
 .icon-button.primary {
-  background: $color-text;
-  color: $color-bg;
-  border-color: $color-text;
+  background: $color-accent;
+  color: $color-accent-contrast;
+  border-color: $color-accent;
 }
 
 .icon-button.active {
-  border-color: $color-text;
-  background: $color-text;
-  color: $color-bg;
+  border-color: $color-accent;
+  background: $color-accent;
+  color: $color-accent-contrast;
 }
 
 .track-actions {

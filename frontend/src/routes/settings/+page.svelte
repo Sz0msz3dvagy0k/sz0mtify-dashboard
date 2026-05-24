@@ -8,6 +8,18 @@
 	import StatCard from '$lib/components/StatCard.svelte';
 	import { apiBase } from '$lib/format';
 	import { initNetworkStatus, networkStatus } from '$lib/mobileNetwork';
+	import { themeSettings, updateTheme, type ThemeMode, type ThemePalette } from '$lib/theme';
+
+	const themeModes: { value: ThemeMode; label: string }[] = [
+		{ value: 'dark', label: 'Dark' },
+		{ value: 'light', label: 'Light' }
+	];
+	const themePalettes: { value: ThemePalette; label: string }[] = [
+		{ value: 'monochrome', label: 'Mono' },
+		{ value: 'ocean', label: 'Ocean' },
+		{ value: 'forest', label: 'Forest' },
+		{ value: 'rose', label: 'Rose' }
+	];
 
 	let health: { ok: boolean; status: string } | null = null;
 	let status: SyncStatus = [];
@@ -147,6 +159,33 @@
 	<button class="button ghost" disabled={!!busy} on:click={() => run('Discovery refresh', () => api.refreshDiscovery(10))}>Discovery Refresh</button>
 	{#if message}<span class="muted">{message}</span>{/if}
 </div>
+<section class="settings-panel theme-settings-panel">
+	<div>
+		<p class="eyebrow">Appearance</p>
+		<h2>Theme</h2>
+	</div>
+	<div class="theme-control">
+		<span>Mode</span>
+		<div class="segmented-control" role="group" aria-label="Theme mode">
+			{#each themeModes as mode}
+				<button class:active={$themeSettings.mode === mode.value} type="button" on:click={() => updateTheme({ mode: mode.value })}>
+					{mode.label}
+				</button>
+			{/each}
+		</div>
+	</div>
+	<div class="theme-control palette-control">
+		<span>Palette</span>
+		<div class="palette-options" role="group" aria-label="Theme palette">
+			{#each themePalettes as palette}
+				<button class:active={$themeSettings.palette === palette.value} class={`palette-option ${palette.value}`} type="button" on:click={() => updateTheme({ palette: palette.value })}>
+					<span class="palette-swatch"></span>
+					<span>{palette.label}</span>
+				</button>
+			{/each}
+		</div>
+	</div>
+</section>
 <section class="settings-panel">
 	<div>
 		<p class="eyebrow">Playback</p>

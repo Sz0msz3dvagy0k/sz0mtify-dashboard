@@ -66,8 +66,8 @@
 
 .sidebar nav a.active,
 .sidebar-section a.active {
-  color: $color-white;
-  border-color: $color-border-bright;
+  color: $color-accent;
+  border-color: $color-accent-border;
   background: $color-surface;
 }
 
@@ -78,7 +78,7 @@
   top: 8px;
   bottom: 8px;
   width: 2px;
-  background: $color-white;
+  background: $color-accent;
 }
 
 .sidebar-section {

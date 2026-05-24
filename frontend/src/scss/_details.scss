@@ -201,7 +201,7 @@
 .progress span {
   display: block;
   height: 100%;
-  background: $color-text;
+  background: $color-accent;
 }
 
 .mini-stats {
@@ -244,6 +244,78 @@
   font-size: $space-md;
   text-transform: uppercase;
   letter-spacing: 0.14em;
+}
+
+.theme-settings-panel {
+  grid-template-columns: minmax(180px, 1fr) minmax(220px, 280px) minmax(
+      260px,
+      1.4fr
+    );
+}
+
+.theme-control {
+  display: grid;
+  gap: 7px;
+  color: $color-text-soft;
+  font-size: $space-md;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+
+.segmented-control,
+.palette-options {
+  display: flex;
+  align-items: center;
+  gap: $space-sm;
+  flex-wrap: wrap;
+}
+
+.segmented-control button,
+.palette-option {
+  min-height: 38px;
+  padding: 0 $space-md;
+  border: 1px solid $color-border-strong;
+  border-radius: $radius-sm;
+  background: $color-ink;
+  color: $color-text-soft;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 640;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.segmented-control button.active,
+.palette-option.active {
+  border-color: $color-accent-border;
+  background: $color-accent;
+  color: $color-accent-contrast;
+}
+
+.palette-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.palette-swatch {
+  width: 14px;
+  height: 14px;
+  border: 1px solid $color-border-bright;
+  border-radius: $radius-pill;
+  background: $color-text;
+}
+
+.palette-option.ocean .palette-swatch {
+  background: #38bdf8;
+}
+
+.palette-option.forest .palette-swatch {
+  background: #34d399;
+}
+
+.palette-option.rose .palette-swatch {
+  background: #fb7185;
 }
 
 .diagnostic-hero strong {
