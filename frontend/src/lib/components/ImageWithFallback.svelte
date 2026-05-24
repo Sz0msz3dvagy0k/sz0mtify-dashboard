@@ -50,9 +50,9 @@
 </script>
 
 {#if src && !failedPrimary && primaryDisplaySrc}
-	<img class="art-image" src={primaryDisplaySrc} {alt} loading="lazy" on:error={() => (failedPrimary = true)} />
+	<img class="art-image" src={primaryDisplaySrc} {alt} loading="lazy" draggable="false" on:error={() => (failedPrimary = true)} />
 {:else if wantedFallbackSrc && !failedFallback && fallbackDisplaySrc}
-	<img class="art-image" src={fallbackDisplaySrc} {alt} loading="lazy" on:error={() => (failedFallback = true)} />
+	<img class="art-image" src={fallbackDisplaySrc} {alt} loading="lazy" draggable="false" on:error={() => (failedFallback = true)} />
 {:else}
 	<div class:artist={kind === 'artist'} class="art-fallback" aria-label={alt}>
 		{#if kind === 'artist'}

@@ -6,6 +6,20 @@
   html,
   body {
     scrollbar-width: none;
+    user-select: none;
+  }
+
+  input,
+  textarea,
+  select,
+  [contenteditable="true"] {
+    user-select: text;
+  }
+
+  a,
+  img {
+    -webkit-touch-callout: none;
+    -webkit-user-drag: none;
   }
 
   html::-webkit-scrollbar,
