@@ -14,8 +14,6 @@ services:
       context: .
       dockerfile: frontend/Dockerfile
     hostname: dash-frontend
-    environment:
-      FRONTEND_API_BASE_URL: ${FRONTEND_API_BASE_URL}
     ports: 
       - "127.0.0.1:${FRONTEND_PUBLISHED_PORT:-5173}:3000"
     depends_on: 

@@ -1,13 +1,14 @@
 <script lang="ts">
-	import { Disc3, KeyRound, LoaderCircle, UserRound } from 'lucide-svelte';
+	import { Disc3, KeyRound, LoaderCircle, Server, UserRound } from 'lucide-svelte';
 	import { api } from '$lib/api';
-	import { saveAuthSession } from '$lib/auth';
+	import { saveAuthSession, setApiBaseUrl, verifyApiBaseUrl } from '$lib/auth';
 	import type { AuthSession } from '$lib/types';
 
 	export let onAuthenticated: (session: AuthSession) => void = () => {};
 
 	let username = '';
 	let password = '';
+	let apiBaseUrl = '';
 	let busy = false;
 	let error = '';
 
@@ -17,8 +18,10 @@
 		error = '';
 
 		try {
+			const verifiedApiBaseUrl = await verifyApiBaseUrl(apiBaseUrl);
+			setApiBaseUrl(verifiedApiBaseUrl);
 			const session = await api.login({ username: username.trim(), password });
-			await saveAuthSession(session);
+			await saveAuthSession(session, verifiedApiBaseUrl);
 			onAuthenticated(session);
 			password = '';
 		} catch (e) {
@@ -45,6 +48,13 @@
 
 		<form class="login-form" on:submit|preventDefault={submit}>
 			<label>
+				<span>Backend URL</span>
+				<div class="login-input">
+					<Server size={18} strokeWidth={1.5} />
+					<input bind:value={apiBaseUrl} inputmode="url" autocomplete="url" placeholder="http://localhost:8080" />
+				</div>
+			</label>
+			<label>
 				<span>Account</span>
 				<div class="login-input">
 					<UserRound size={18} strokeWidth={1.5} />
@@ -61,9 +71,9 @@
 
 			{#if error}<p class="login-error">{error}</p>{/if}
 
-			<button class="button login-submit" disabled={busy || !username.trim() || !password}>
+			<button class="button login-submit" disabled={busy || !apiBaseUrl.trim() || !username.trim() || !password}>
 				{#if busy}<LoaderCircle size={18} class="spin" />{/if}
-				<span>{busy ? 'Signing in' : 'Continue'}</span>
+				<span>{busy ? 'Checking backend' : 'Continue'}</span>
 			</button>
 		</form>
 	</section>

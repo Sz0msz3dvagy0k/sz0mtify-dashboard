@@ -38,10 +38,10 @@ npm run format
 ## iOS local bundle
 The frontend is built as a static SvelteKit SPA and wrapped by Capacitor for iOS.
 
-1. Set the API URL in `.env` before building:
+1. Set the public frontend origin for backend CORS when deploying:
    ```bash
-   FRONTEND_API_BASE_URL=https://kaori.szomszed.me
-   FRONTEND_ALLOWED_ORIGINS=https://kaori.szomszed.me,capacitor://localhost
+   FRONTEND_BASE_URL=https://kaori.szomszed.me
+   CAPACITOR=true
    ```
 2. Build and sync the native project:
    ```bash
@@ -50,7 +50,7 @@ The frontend is built as a static SvelteKit SPA and wrapped by Capacitor for iOS
    npm run cap:open:ios
    ```
 
-`frontend/static/config.js` is copied into the bundle and can override the API URL at runtime with `window.__ARCHIVE_CONFIG__.apiBaseUrl`. The Docker frontend image rewrites that file from `FRONTEND_API_BASE_URL` when the container starts.
+The frontend API base URL is entered on the login screen. The app validates the URL, checks `/api/health`, and stores it locally only for the lifetime of the saved session.
 
 The audio player uses short-lived stream tokens from `POST /api/auth/stream-token` because native media elements cannot attach custom `Authorization` headers to stream URLs.
 

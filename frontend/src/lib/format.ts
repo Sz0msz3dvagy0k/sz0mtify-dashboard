@@ -1,12 +1,4 @@
-type ArchiveConfig = {
-	apiBaseUrl?: string;
-};
-
-declare global {
-	interface Window {
-		__ARCHIVE_CONFIG__?: ArchiveConfig;
-	}
-}
+import { getApiBaseUrl } from '$lib/auth';
 
 export function formatNumber(value: number | null | undefined): string {
 	return new Intl.NumberFormat('en-US').format(value ?? 0);
@@ -69,7 +61,5 @@ export function formatArtistBio(value: string | null | undefined): string {
 }
 
 export function apiBase(): string {
-	const runtimeBase = typeof window !== 'undefined' ? window.__ARCHIVE_CONFIG__?.apiBaseUrl : undefined;
-	const buildBase = import.meta.env.FRONTEND_API_BASE_URL as string | undefined;
-	return (runtimeBase || buildBase || '').replace(/\/$/, '');
+	return getApiBaseUrl();
 }

@@ -255,33 +255,45 @@ fn frontend_allowed_origins() -> Vec<HeaderValue> {
         "http://127.0.0.1:5173",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
-        "capacitor://localhost",
-        "ionic://localhost",
-    ];
-
-    let configured = [
-        env::var("FRONTEND_ALLOWED_ORIGINS").unwrap_or_default(),
-        env::var("FRONTEND_API_BASE_URL").unwrap_or_default(),
-        env::var("FRONTEND_ORIGIN").unwrap_or_default(),
-        env::var("PUBLIC_FRONTEND_URL").unwrap_or_default(),
     ];
 
     let mut origins = Vec::new();
-    for origin in configured
-        .iter()
-        .flat_map(|value| value.split(','))
-        .chain(defaults)
-        .filter_map(normalize_cors_origin)
-    {
-        if !origins.contains(&origin) {
-            origins.push(origin);
-        }
+    push_origin(
+        &mut origins,
+        env::var("FRONTEND_BASE_URL").unwrap_or_default(),
+    );
+
+    for origin in defaults {
+        push_origin(&mut origins, origin);
+    }
+
+    if capacitor_enabled() {
+        push_origin(&mut origins, "capacitor://localhost");
     }
 
     origins
         .into_iter()
         .filter_map(|origin| origin.parse().ok())
         .collect()
+}
+
+fn push_origin(origins: &mut Vec<String>, value: impl AsRef<str>) {
+    if let Some(origin) = normalize_cors_origin(value.as_ref()) {
+        if !origins.contains(&origin) {
+            origins.push(origin);
+        }
+    }
+}
+
+fn capacitor_enabled() -> bool {
+    env::var("CAPACITOR")
+        .map(|value| {
+            !matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "0" | "false" | "no" | "off"
+            )
+        })
+        .unwrap_or(true)
 }
 
 fn normalize_cors_origin(value: &str) -> Option<String> {

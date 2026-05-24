@@ -109,17 +109,6 @@
 		initTheme();
 		const session = await loadStoredSession();
 		if (!session) {
-			try {
-				const user = await api.me();
-				accountName = user.username;
-				authenticated = true;
-				void initNetworkStatus();
-				void loadLocalMedia();
-				void warmStreamToken().catch((error) => console.warn('Unable to warm stream token', error));
-			} catch {
-				authChecked = true;
-				return;
-			}
 			authChecked = true;
 			return;
 		}
