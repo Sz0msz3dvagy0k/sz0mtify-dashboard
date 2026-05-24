@@ -1,8 +1,8 @@
-# Music Listening Dashboard (Self-hosted MVP)
+# sz0mtify
 
 Monorepo with:
 - `backend/`: Rust (Axum + SQLx + SQLite)
-- `frontend/`: SvelteKit + TypeScript monochrome dashboard
+- `frontend/`: SvelteKit + TypeScript music analytics app
 - `docker-compose.yml`: local development stack
 
 ## Quick start

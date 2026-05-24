@@ -33,7 +33,7 @@
 </script>
 
 <svelte:head>
-	<title>Sign in · Archive</title>
+	<title>Sign in · sz0mtify</title>
 </svelte:head>
 
 <main class="login-page">
@@ -41,7 +41,7 @@
 		<div class="login-brand">
 			<div class="login-mark"><Disc3 size={32} strokeWidth={1.4} /></div>
 			<div>
-				<p>Archive</p>
+				<p>sz0mtify</p>
 				<h1>Sign in</h1>
 			</div>
 		</div>

@@ -335,7 +335,7 @@
 />
 
 <svelte:head>
-	<title>{authenticated ? `${currentLabel} · Archive` : 'Sign in · Archive'}</title>
+	<title>{authenticated ? `${currentLabel} · sz0mtify` : 'Sign in · sz0mtify'}</title>
 </svelte:head>
 
 {#if !authChecked}
@@ -354,7 +354,7 @@
 		<aside class="sidebar" class:open={mobileMenuOpen}>
 			<a class="brand" href="/overview">
 				<Disc3 size={28} strokeWidth={1.4} />
-				<span>Archive</span>
+				<span>sz0mtify</span>
 			</a>
 			<nav>
 				{#each nav as item}
