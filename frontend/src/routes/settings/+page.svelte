@@ -4,7 +4,6 @@
 	import { api } from '$lib/api';
 	import { clearAuthSession } from '$lib/auth';
 	import type { ActiveSession, SyncStatus } from '$lib/types';
-	import DataTable from '$lib/components/DataTable.svelte';
 	import ErrorState from '$lib/components/ErrorState.svelte';
 	import StatCard from '$lib/components/StatCard.svelte';
 	import { apiBase } from '$lib/format';
@@ -325,4 +324,35 @@
 		{/each}
 	</div>
 </div>
-<DataTable columns={['Setting', 'Value']} rows={safeSettings} />
+<div class="table-wrap settings-values-wrap">
+	<table class="settings-values-table">
+		<thead>
+			<tr>
+				<th>Setting</th>
+				<th>Value</th>
+			</tr>
+		</thead>
+		<tbody>
+			{#each safeSettings as row}
+				<tr>
+					<td>{row[0]}</td>
+					<td>{displayCell(row[1])}</td>
+				</tr>
+			{/each}
+		</tbody>
+	</table>
+	<div class="mobile-settings-values-list">
+		{#each safeSettings as row}
+			<article>
+				<div>
+					<span>Setting</span>
+					<strong>{row[0]}</strong>
+				</div>
+				<div>
+					<span>Value</span>
+					<strong>{displayCell(row[1])}</strong>
+				</div>
+			</article>
+		{/each}
+	</div>
+</div>

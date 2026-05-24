@@ -174,18 +174,29 @@
     padding: 10px;
   }
 
+  .settings-values-wrap {
+    overflow: visible;
+    padding: 10px;
+  }
+
   .sync-status-table {
     display: none;
   }
 
+  .settings-values-table {
+    display: none;
+  }
+
   .mobile-session-list,
-  .mobile-sync-status-list {
+  .mobile-sync-status-list,
+  .mobile-settings-values-list {
     display: grid;
     gap: $space-sm;
   }
 
   .mobile-session-list article,
-  .mobile-sync-status-list article {
+  .mobile-sync-status-list article,
+  .mobile-settings-values-list article {
     border: 1px solid transparent;
     border-radius: $radius-sm;
     background: $color-ink;
@@ -305,7 +316,8 @@
     text-transform: none;
   }
 
-  .mobile-sync-status-list article {
+  .mobile-sync-status-list article,
+  .mobile-settings-values-list article {
     padding: 10px;
   }
 
@@ -356,6 +368,35 @@
   }
 
   .mobile-sync-status-details strong {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-size: 13px;
+    font-weight: 560;
+  }
+
+  .mobile-settings-values-list article {
+    display: grid;
+    gap: $space-sm;
+  }
+
+  .mobile-settings-values-list div {
+    display: grid;
+    gap: 3px;
+  }
+
+  .mobile-settings-values-list div + div {
+    padding-top: 8px;
+    border-top: 1px solid $color-border;
+  }
+
+  .mobile-settings-values-list span {
+    color: $color-text-dim;
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+  }
+
+  .mobile-settings-values-list strong {
     min-width: 0;
     overflow-wrap: anywhere;
     font-size: 13px;
