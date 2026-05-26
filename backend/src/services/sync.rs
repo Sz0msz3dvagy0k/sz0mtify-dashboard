@@ -2,6 +2,7 @@ use anyhow::{anyhow, Context};
 use md5::{Digest, Md5};
 use rand::RngCore;
 use reqwest::Client;
+use serde::Serialize;
 use serde_json::json;
 use std::collections::HashSet;
 use std::env;
@@ -13,6 +14,24 @@ use crate::utils::matching::normalize_name;
 
 #[derive(Clone)]
 pub struct SyncService;
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct SubsonicScanStatus {
+    pub scanning: bool,
+    pub count: Option<i64>,
+    pub folder_count: Option<i64>,
+    pub last_scan: Option<String>,
+    pub scan_type: Option<String>,
+    pub elapsed_time: Option<i64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct ScanCheckResult {
+    pub changed: bool,
+    pub previous_last_scan: Option<String>,
+    pub scan_status: SubsonicScanStatus,
+}
+
 impl SyncService {
     pub fn new() -> Self {
         Self
@@ -103,6 +122,57 @@ impl SyncService {
         source: &str,
     ) -> anyhow::Result<()> {
         write_sync_state(pool, id, source, "running", None).await
+    }
+
+    pub async fn check_subsonic_scan(
+        &self,
+        pool: &sqlx::SqlitePool,
+    ) -> anyhow::Result<ScanCheckResult> {
+        let result: anyhow::Result<ScanCheckResult> = async {
+            let cfg = SubsonicConfig::load(pool).await?;
+            let client = Client::new();
+            let scan_status = fetch_subsonic_scan_status(&client, &cfg).await?;
+            let previous_last_scan = processed_scan_last_scan(pool).await?;
+            write_scan_observation(pool, &scan_status).await?;
+            let changed = scan_last_scan_changed(
+                previous_last_scan.as_deref(),
+                scan_status.last_scan.as_deref(),
+            );
+            write_sync_state(
+                pool,
+                3,
+                "navidrome_scan",
+                if changed { "changed" } else { "ok" },
+                None,
+            )
+            .await?;
+
+            Ok(ScanCheckResult {
+                changed,
+                previous_last_scan,
+                scan_status,
+            })
+        }
+        .await;
+
+        if let Err(error) = &result {
+            warn!(error = %error, "Navidrome scan status check failed");
+            if let Err(state_error) =
+                write_sync_state(pool, 3, "navidrome_scan", "error", Some(&error.to_string())).await
+            {
+                warn!(error = %state_error, "failed to write Navidrome scan error state");
+            }
+        }
+
+        result
+    }
+
+    pub async fn mark_scan_processed(
+        &self,
+        pool: &sqlx::SqlitePool,
+        last_scan: &str,
+    ) -> anyhow::Result<()> {
+        mark_processed_scan_last_scan(pool, last_scan).await
     }
 
     pub async fn normalize_artist_credits(&self, pool: &sqlx::SqlitePool) -> anyhow::Result<i64> {
@@ -210,6 +280,118 @@ async fn write_sync_state(
         .execute(pool)
         .await?;
     Ok(())
+}
+
+async fn processed_scan_last_scan(pool: &sqlx::SqlitePool) -> anyhow::Result<Option<String>> {
+    let value: Option<(Option<String>,)> =
+        sqlx::query_as("SELECT last_scan FROM navidrome_scan_state WHERE source = 'subsonic'")
+            .fetch_optional(pool)
+            .await?;
+
+    Ok(value.and_then(|(last_scan,)| last_scan))
+}
+
+async fn write_scan_observation(
+    pool: &sqlx::SqlitePool,
+    status: &SubsonicScanStatus,
+) -> anyhow::Result<()> {
+    sqlx::query(
+        "INSERT INTO navidrome_scan_state(source,observed_last_scan,last_checked_at,scanning,count,folder_count,scan_type,elapsed_time)
+         VALUES('subsonic',?,datetime('now'),?,?,?,?,?)
+         ON CONFLICT(source) DO UPDATE SET
+            observed_last_scan=excluded.observed_last_scan,
+            last_checked_at=excluded.last_checked_at,
+            scanning=excluded.scanning,
+            count=excluded.count,
+            folder_count=excluded.folder_count,
+            scan_type=excluded.scan_type,
+            elapsed_time=excluded.elapsed_time",
+    )
+    .bind(status.last_scan.as_deref())
+    .bind(status.scanning)
+    .bind(status.count)
+    .bind(status.folder_count)
+    .bind(status.scan_type.as_deref())
+    .bind(status.elapsed_time)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+async fn mark_processed_scan_last_scan(
+    pool: &sqlx::SqlitePool,
+    last_scan: &str,
+) -> anyhow::Result<()> {
+    sqlx::query(
+        "INSERT INTO navidrome_scan_state(source,last_scan,observed_last_scan,last_checked_at)
+         VALUES('subsonic',?,?,datetime('now'))
+         ON CONFLICT(source) DO UPDATE SET
+            last_scan=excluded.last_scan,
+            observed_last_scan=COALESCE(navidrome_scan_state.observed_last_scan, excluded.observed_last_scan),
+            last_checked_at=excluded.last_checked_at",
+    )
+    .bind(last_scan)
+    .bind(last_scan)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+async fn fetch_subsonic_scan_status(
+    client: &Client,
+    cfg: &SubsonicConfig,
+) -> anyhow::Result<SubsonicScanStatus> {
+    let url = format!("{}/rest/getScanStatus", cfg.base_url.trim_end_matches('/'));
+    let response = subsonic_get_json(client, &url, cfg, &[], "getScanStatus").await?;
+    scan_status_from_response(&response)
+}
+
+fn scan_status_from_response(response: &serde_json::Value) -> anyhow::Result<SubsonicScanStatus> {
+    let scan_status = response
+        .get("subsonic-response")
+        .and_then(|root| root.get("scanStatus"))
+        .ok_or_else(|| anyhow!("invalid Subsonic getScanStatus response: missing scanStatus"))?;
+
+    Ok(SubsonicScanStatus {
+        scanning: scan_status
+            .get("scanning")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false),
+        count: scan_status.get("count").and_then(|value| value.as_i64()),
+        folder_count: scan_status
+            .get("folderCount")
+            .and_then(|value| value.as_i64()),
+        last_scan: scan_status
+            .get("lastScan")
+            .and_then(|value| value.as_str())
+            .and_then(non_empty)
+            .map(ToString::to_string),
+        scan_type: scan_status
+            .get("scanType")
+            .and_then(|value| value.as_str())
+            .and_then(non_empty)
+            .map(ToString::to_string),
+        elapsed_time: scan_status
+            .get("elapsedTime")
+            .and_then(|value| value.as_i64()),
+    })
+}
+
+fn scan_last_scan_changed(previous: Option<&str>, current: Option<&str>) -> bool {
+    let Some(current) = current.and_then(non_empty) else {
+        return false;
+    };
+    let Some(previous) = previous.and_then(non_empty) else {
+        return true;
+    };
+
+    match (
+        chrono::DateTime::parse_from_rfc3339(previous),
+        chrono::DateTime::parse_from_rfc3339(current),
+    ) {
+        (Ok(previous), Ok(current)) => current > previous,
+        _ => current != previous,
+    }
 }
 
 async fn fetch_subsonic_album_list(
@@ -1180,6 +1362,61 @@ mod tests {
         let list = value_list(Some(&value));
 
         assert_eq!(list, vec![value]);
+    }
+
+    #[test]
+    fn extracts_scan_status_last_scan_from_subsonic_json() {
+        let response = json!({
+            "subsonic-response": {
+                "status": "ok",
+                "scanStatus": {
+                    "scanning": false,
+                    "count": 2537,
+                    "folderCount": 436,
+                    "lastScan": "2026-05-21T20:07:06.154853898Z",
+                    "scanType": "quick-selective",
+                    "elapsedTime": 1154853898
+                }
+            }
+        });
+
+        let status = scan_status_from_response(&response).unwrap();
+
+        assert_eq!(
+            status,
+            SubsonicScanStatus {
+                scanning: false,
+                count: Some(2537),
+                folder_count: Some(436),
+                last_scan: Some("2026-05-21T20:07:06.154853898Z".to_string()),
+                scan_type: Some("quick-selective".to_string()),
+                elapsed_time: Some(1154853898),
+            }
+        );
+    }
+
+    #[test]
+    fn scan_last_scan_change_requires_new_non_empty_timestamp() {
+        assert!(scan_last_scan_changed(
+            None,
+            Some("2026-05-21T20:07:06.154853898Z")
+        ));
+        assert!(scan_last_scan_changed(
+            Some("2026-05-20T20:07:06Z"),
+            Some("2026-05-21T20:07:06.154853898Z")
+        ));
+        assert!(!scan_last_scan_changed(
+            Some("2026-05-21T20:07:06.154853898Z"),
+            Some("2026-05-21T20:07:06.154853898Z")
+        ));
+        assert!(!scan_last_scan_changed(
+            Some("2026-05-21T20:07:06.154853898Z"),
+            Some("2026-05-20T20:07:06Z")
+        ));
+        assert!(!scan_last_scan_changed(
+            Some("2026-05-21T20:07:06.154853898Z"),
+            None
+        ));
     }
 
     #[test]

@@ -86,6 +86,7 @@
 			const user = await api.me();
 			accountName = user.username;
 			authenticated = true;
+			void api.checkScan().catch((error) => console.warn('Unable to check Navidrome scan status', error));
 			void warmStreamToken().catch((error) => console.warn('Unable to warm stream token', error));
 			await loadShellData();
 		} catch {
@@ -115,6 +116,7 @@
 		authenticated = true;
 		void initNetworkStatus();
 		void loadLocalMedia();
+		void api.checkScan().catch((error) => console.warn('Unable to check Navidrome scan status', error));
 		void warmStreamToken().catch((error) => console.warn('Unable to warm stream token', error));
 		await loadShellData();
 	}

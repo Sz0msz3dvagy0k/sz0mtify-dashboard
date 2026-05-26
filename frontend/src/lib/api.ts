@@ -97,6 +97,7 @@ export const api = {
 	saveSettings: (body: Record<string, unknown>) =>
 		request<Record<string, unknown>>('/api/settings', { method: 'POST', body: JSON.stringify(body) }),
 	syncStatus: () => request<SyncStatus>('/api/sync/status'),
+	checkScan: () => request<unknown>('/api/sync/check-scan', { method: 'POST' }),
 	syncAll: () => request<unknown>('/api/sync/all', { method: 'POST' }),
 	syncSubsonic: () => request<unknown>('/api/sync/subsonic', { method: 'POST' }),
 	syncLastfm: () => request<unknown>('/api/sync/lastfm', { method: 'POST' }),

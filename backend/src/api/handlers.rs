@@ -307,6 +307,29 @@ pub async fn sync_status(State(state): State<Arc<AppState>>) -> Json<Value> {
     }
 }
 
+pub async fn sync_check_scan(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    match state
+        .check_scan_and_maybe_start_sync("frontend_connect")
+        .await
+    {
+        Ok(result) => (
+            if result.sync_started {
+                StatusCode::ACCEPTED
+            } else {
+                StatusCode::OK
+            },
+            ok(json!(result)),
+        ),
+        Err(error) => {
+            warn!(error = %error, "failed to check Navidrome scan status");
+            (
+                StatusCode::BAD_GATEWAY,
+                err(&format!("failed_to_check_scan_status: {error}")),
+            )
+        }
+    }
+}
+
 macro_rules! respond_service {
     ($result:expr, $err:literal) => {
         match $result.await {

@@ -12,6 +12,7 @@ use axum::{
     routing::{delete, get, post},
     Router,
 };
+use chrono::{DateTime, Days, Local, LocalResult, NaiveDate, TimeZone};
 use db::migrate;
 use services::{
     analytics::AnalyticsService, discovery::DiscoveryService,
@@ -112,6 +113,7 @@ async fn run() -> anyhow::Result<()> {
         recommendations: RecommendationService,
         settings: SettingsService,
     });
+    start_scan_poll_scheduler(state.clone());
 
     let app = Router::new()
         .route("/api/health", get(api::handlers::health))
@@ -132,6 +134,7 @@ async fn run() -> anyhow::Result<()> {
         .route("/api/sync/lastfm", post(api::handlers::sync_lastfm))
         .route("/api/sync/all", post(api::handlers::sync_all))
         .route("/api/sync/status", get(api::handlers::sync_status))
+        .route("/api/sync/check-scan", post(api::handlers::sync_check_scan))
         .route(
             "/api/library/overview",
             get(api::handlers::library_overview),
@@ -223,6 +226,59 @@ async fn run() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+fn start_scan_poll_scheduler(state: Arc<services::AppState>) {
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(duration_until_next_scan_poll(Local::now())).await;
+            match state.check_scan_and_maybe_start_sync("daily_1am").await {
+                Ok(result) => {
+                    info!(
+                        changed = result.check.changed,
+                        sync_started = result.sync_started,
+                        "daily Navidrome scan status check completed"
+                    );
+                }
+                Err(error) => {
+                    tracing::warn!(error = %error, "daily Navidrome scan status check failed");
+                }
+            }
+            tokio::time::sleep(Duration::from_secs(60)).await;
+        }
+    });
+}
+
+fn duration_until_next_scan_poll(now: DateTime<Local>) -> Duration {
+    let today = now.date_naive();
+    let target_today = local_one_am(today);
+    let target = if target_today > now {
+        target_today
+    } else {
+        let tomorrow = today.checked_add_days(Days::new(1)).unwrap_or(today);
+        local_one_am(tomorrow)
+    };
+
+    (target - now)
+        .to_std()
+        .unwrap_or_else(|_| Duration::from_secs(60 * 60))
+}
+
+fn local_one_am(date: NaiveDate) -> DateTime<Local> {
+    let naive = date
+        .and_hms_opt(1, 0, 0)
+        .expect("1am is a valid local wall-clock time");
+    match Local.from_local_datetime(&naive) {
+        LocalResult::Single(value) => value,
+        LocalResult::Ambiguous(earliest, _) => earliest,
+        LocalResult::None => {
+            let fallback = naive + chrono::Duration::hours(1);
+            Local
+                .from_local_datetime(&fallback)
+                .earliest()
+                .unwrap_or_else(Local::now)
+        }
+    }
 }
 
 fn cors_layer() -> CorsLayer {
