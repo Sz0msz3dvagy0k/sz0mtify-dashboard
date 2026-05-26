@@ -46,6 +46,7 @@
 		<ChartCard
 			title="Bitrate Ranking"
 			option={{
+				grid: { left: 36, right: 18, top: 18, bottom: 56 },
 				xAxis: { type: 'category', data: quality.slice(0, 16).map((q) => `${q[0] ?? '—'} kbps`), axisLabel: { color: '#8a8a8a', rotate: 45 } },
 				yAxis: { type: 'value', axisLabel: { color: '#8a8a8a' }, splitLine: { lineStyle: { color: '#262626' } } },
 				series: [{ type: 'bar', data: quality.slice(0, 16).map((q) => q[2]), color: '#f5f5f5' }]

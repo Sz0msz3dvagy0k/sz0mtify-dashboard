@@ -46,6 +46,7 @@
 		<ChartCard
 			title="Top Artists"
 			option={{
+				grid: { left: 8, right: 28, top: 18, bottom: 28 },
 				xAxis: { type: 'value', axisLabel: { color: '#8a8a8a' }, splitLine: { lineStyle: { color: '#262626' } } },
 				yAxis: { type: 'category', data: listening.top_artists.slice(0, 10).map((a) => a[1] ?? 'Unknown').reverse(), axisLabel: { color: '#a3a3a3' } },
 				series: [{ type: 'bar', data: listening.top_artists.slice(0, 10).map((a) => a[2]).reverse(), color: '#f5f5f5' }]
@@ -54,6 +55,7 @@
 		<ChartCard
 			title="Top Albums"
 			option={{
+				grid: { left: 8, right: 28, top: 18, bottom: 28 },
 				xAxis: { type: 'value', axisLabel: { color: '#8a8a8a' }, splitLine: { lineStyle: { color: '#262626' } } },
 				yAxis: { type: 'category', data: listening.top_albums.slice(0, 10).map((a) => a[1] ?? 'Unknown').reverse(), axisLabel: { color: '#a3a3a3' } },
 				series: [{ type: 'bar', data: listening.top_albums.slice(0, 10).map((a) => a[2]).reverse(), color: '#d4d4d4' }]

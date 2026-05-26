@@ -51,7 +51,7 @@
 		<ChartCard
 			title="Genre Distribution"
 			option={{
-				grid: { left: 132, right: 28, top: 18, bottom: 28 },
+				grid: { left: 8, right: 28, top: 18, bottom: 28 },
 				xAxis: { type: 'value', axisLabel: { color: '#8a8a8a', formatter: (value: number) => formatBytes(value) }, splitLine: { lineStyle: { color: '#262626' } } },
 				yAxis: { type: 'category', data: rankedGenres.map(([name]) => name ?? 'Unknown'), axisLabel: { color: '#a3a3a3' } },
 				series: [{ type: 'bar', data: rankedGenres.map(([, bytes]) => bytes), color: '#f5f5f5' }]

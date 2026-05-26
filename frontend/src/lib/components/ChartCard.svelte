@@ -59,6 +59,12 @@
 
 	function baseOption(input: EChartsCoreOption): EChartsCoreOption {
 		const colors = themeColors();
+		const inputGrid = typeof input.grid === 'object' && !Array.isArray(input.grid) ? input.grid : {};
+		const inputWithAxisDefaults = {
+			...input,
+			xAxis: withCategoryLabelDefaults(input.xAxis, 'x'),
+			yAxis: withCategoryLabelDefaults(input.yAxis, 'y')
+		};
 		const tooltip = typeof input.tooltip === 'object' && !Array.isArray(input.tooltip) ? input.tooltip : {};
 		const textStyle = typeof input.textStyle === 'object' && !Array.isArray(input.textStyle) ? input.textStyle : {};
 		const themed = themeChartColors({
@@ -71,8 +77,8 @@
 				textStyle: { color: colors.bg },
 				...tooltip
 			},
-			grid: { left: 40, right: 18, top: 22, bottom: 34 },
-			...input
+			...inputWithAxisDefaults,
+			grid: { left: 12, right: 18, top: 22, bottom: 12, containLabel: true, ...inputGrid }
 		}, colors) as EChartsCoreOption;
 
 		return {
@@ -80,6 +86,25 @@
 			tooltip: {
 				...(themed.tooltip as Record<string, unknown>),
 				...(themeChartColors(tooltip, colors) as Record<string, unknown>)
+			}
+		};
+	}
+
+	function withCategoryLabelDefaults(axis: unknown, direction: 'x' | 'y'): unknown {
+		if (Array.isArray(axis)) return axis.map((item) => withCategoryLabelDefaults(item, direction));
+		if (!axis || typeof axis !== 'object') return axis;
+
+		const axisObject = axis as Record<string, unknown>;
+		if (axisObject.type !== 'category') return axis;
+
+		const axisLabel = typeof axisObject.axisLabel === 'object' && !Array.isArray(axisObject.axisLabel) ? axisObject.axisLabel : {};
+		return {
+			...axisObject,
+			axisLabel: {
+				width: direction === 'y' ? 112 : 72,
+				overflow: 'truncate',
+				ellipsis: '...',
+				...axisLabel
 			}
 		};
 	}

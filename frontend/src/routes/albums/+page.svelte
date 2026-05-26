@@ -200,6 +200,7 @@
 		<ChartCard
 			title="Largest Albums"
 			option={{
+				grid: { left: 8, right: 28, top: 18, bottom: 28 },
 				xAxis: { type: 'value', axisLabel: { color: '#8a8a8a', formatter: (value: number) => `${value} MB` }, splitLine: { lineStyle: { color: '#262626' } } },
 				yAxis: { type: 'category', data: largestChartRows.map((a) => a[1] ?? 'Unknown').reverse(), axisLabel: { color: '#a3a3a3' } },
 				series: [{ type: 'bar', data: largestChartRows.map((a) => Number((a[3] / 1024 ** 2).toFixed(1))).reverse(), color: '#e5e5e5' }],

@@ -73,6 +73,7 @@
 		<ChartCard
 			title="Storage by Artist"
 			option={{
+				grid: { left: 8, right: 28, top: 18, bottom: 28 },
 				xAxis: { type: 'value', axisLabel: { color: '#8a8a8a', formatter: (value: number) => `${value} MB` }, splitLine: { lineStyle: { color: '#262626' } } },
 				yAxis: { type: 'category', data: storageArtistChartRows.map((row) => row[1] ?? 'Unknown'), axisLabel: { color: '#a3a3a3' } },
 				series: [{ type: 'bar', data: storageArtistChartRows.map((row) => Number((row[2] / 1024 ** 2).toFixed(1))), color: '#f5f5f5' }],

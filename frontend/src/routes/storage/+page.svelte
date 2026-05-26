@@ -204,7 +204,7 @@
 		<ChartCard
 			title="Storage by Artist"
 			option={{
-				grid: { left: 132, right: 28, top: 18, bottom: 28 },
+				grid: { left: 8, right: 28, top: 18, bottom: 28 },
 				xAxis: { type: 'value', axisLabel: { color: '#8a8a8a', formatter: (value: number) => `${value} MB` }, splitLine: { lineStyle: { color: '#262626' } } },
 				yAxis: { type: 'category', data: rankedArtists.map(([, name]) => name ?? 'Unknown'), axisLabel: { color: '#a3a3a3' } },
 				series: [{ type: 'bar', data: rankedArtists.map(([, , bytes]) => Number((bytes / 1024 ** 2).toFixed(1))), color: '#f5f5f5' }],
@@ -215,7 +215,7 @@
 		<ChartCard
 			title="Extension Breakdown"
 			option={{
-				grid: { left: 80, right: 28, top: 18, bottom: 28 },
+				grid: { left: 8, right: 28, top: 18, bottom: 28 },
 				xAxis: { type: 'value', axisLabel: { color: '#8a8a8a' }, splitLine: { lineStyle: { color: '#262626' } } },
 				yAxis: { type: 'category', data: rankedExtensions.map(([name]) => name ?? 'unknown'), axisLabel: { color: '#a3a3a3' } },
 				series: [{ type: 'bar', data: rankedExtensions.map(([, tracks]) => tracks), color: '#d4d4d4' }]
