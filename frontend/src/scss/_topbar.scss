@@ -1,0 +1,153 @@
+@use "variables" as *;
+@use "mixins" as *;
+
+.main-column {
+  grid-column: 2;
+  min-width: 0;
+}
+
+.mobile-menu-backdrop {
+  display: none;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  min-height: 92px;
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(280px, 560px) minmax(
+      90px,
+      1fr
+    );
+  align-items: center;
+  gap: 20px;
+  padding: max(18px, env(safe-area-inset-top))
+    max($space-2xl, env(safe-area-inset-right)) 18px $space-2xl;
+  border-bottom: 1px solid $color-border;
+  background: $overlay-page;
+  backdrop-filter: blur(18px);
+
+  &-heading {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-width: 0;
+  }
+}
+
+.topbar p,
+.eyebrow {
+  margin: 0 0 $space-xs;
+
+  @include uppercase-label($size: $space-md);
+}
+
+.section-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: $space-lg;
+}
+
+.section-heading h2 {
+  margin: 0;
+}
+
+.topbar h1 {
+  margin: 0;
+  font-size: clamp(28px, 3vw, 44px);
+  font-weight: 760;
+  line-height: 0.98;
+}
+
+.topbar-search {
+  min-height: 44px;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 0 $space-md;
+  border: 1px solid $color-border-strong;
+  border-radius: $radius-sm;
+  background: $color-ink;
+  color: $color-text-soft;
+
+  &:focus-within {
+    border-color: $color-text-dim;
+    background: $color-surface;
+  }
+
+  input {
+    width: 100%;
+    min-width: 0;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: $color-text;
+
+    &::placeholder {
+      color: $color-text-dim;
+    }
+  }
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: $space-sm;
+  max-width: 520px;
+  min-height: 38px;
+  padding: 0 $space-md;
+  border: 1px solid $color-border-strong;
+  border-radius: $radius-pill;
+  color: $color-text-soft;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 0;
+}
+
+.topbar-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+
+.icon-button.mobile-search-button {
+  display: none;
+}
+
+.back-button {
+  flex: 0 0 auto;
+}
+
+.search-overlay {
+  display: none;
+}
+
+.page-surface {
+  padding: 28px $space-2xl 136px;
+  animation: page-in 0.32s ease both;
+}
+
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}

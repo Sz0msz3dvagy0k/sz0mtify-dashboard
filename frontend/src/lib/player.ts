@@ -41,6 +41,7 @@ type StoredPlayerState = {
 const playerStorageKey = 'archive.playerState.v1';
 const historyStorageKey = 'archive.songHistory.v1';
 const maxHistoryEntries = 200;
+const maxStoredQueueTracks = 100;
 
 const initialState: PlayerState = {
 	queue: [],
@@ -53,15 +54,18 @@ const initialState: PlayerState = {
 };
 
 export const player = writable<PlayerState>(restorePlayerState());
-export const songHistory = writable<SongHistoryEntry[]>(restoreSongHistory());
+export const songHistory = writable<SongHistoryEntry[]>([]);
 
 let cachedStreamToken: { token: string; expires_at: number } | null = null;
+let streamTokenRefreshTimer: number | null = null;
+let historyRestored = false;
 
 player.subscribe((state) => {
 	if (!browser) return;
+	const storedQueue = compactStoredQueue(state.queue, state.currentIndex);
 	const stored: StoredPlayerState = {
-		queue: state.queue,
-		currentIndex: state.currentIndex,
+		queue: storedQueue.queue,
+		currentIndex: storedQueue.currentIndex,
 		volume: state.volume,
 		wasPlaying: state.isPlaying
 	};
@@ -69,9 +73,16 @@ player.subscribe((state) => {
 });
 
 songHistory.subscribe((entries) => {
-	if (!browser) return;
+	if (!browser || !historyRestored) return;
 	writeJson(historyStorageKey, entries.slice(0, maxHistoryEntries));
 });
+
+if (browser) {
+	window.setTimeout(() => {
+		historyRestored = true;
+		songHistory.set(restoreSongHistory());
+	}, 0);
+}
 
 export function playQueue(queue: QueueTrack[], startIndex = 0) {
 	if (!queue.length) return;
@@ -160,6 +171,7 @@ export function closeQueue() {
 
 export async function warmStreamToken() {
 	cachedStreamToken = await api.streamToken();
+	scheduleStreamTokenRefresh();
 }
 
 async function streamToken() {
@@ -169,6 +181,15 @@ async function streamToken() {
 	}
 	if (!cachedStreamToken) throw new Error('Unable to issue stream token');
 	return cachedStreamToken.token;
+}
+
+function scheduleStreamTokenRefresh() {
+	if (!browser || !cachedStreamToken) return;
+	if (streamTokenRefreshTimer) clearTimeout(streamTokenRefreshTimer);
+	const refreshInMs = Math.max(10_000, (cachedStreamToken.expires_at - Math.floor(Date.now() / 1000) - 60) * 1000);
+	streamTokenRefreshTimer = window.setTimeout(() => {
+		void warmStreamToken().catch((error) => console.warn('Unable to refresh stream token', error));
+	}, refreshInMs);
 }
 
 export async function streamUrl(trackId: number, options: { lossless?: boolean } = {}) {
@@ -226,10 +247,12 @@ function restorePlayerState(): PlayerState {
 	const stored = readJson<StoredPlayerState>(playerStorageKey);
 	if (!stored?.wasPlaying || !Array.isArray(stored.queue) || !stored.queue.length) return initialState;
 
-	const currentIndex = Math.min(Math.max(stored.currentIndex ?? 0, 0), stored.queue.length - 1);
+	const storedQueue = stored.queue.filter(isQueueTrack).slice(0, maxStoredQueueTracks);
+	if (!storedQueue.length) return initialState;
+	const currentIndex = Math.min(Math.max(stored.currentIndex ?? 0, 0), storedQueue.length - 1);
 	return {
 		...initialState,
-		queue: stored.queue,
+		queue: storedQueue,
 		currentIndex,
 		isPlaying: false,
 		volume: clampVolume(stored.volume)
@@ -261,6 +284,41 @@ function writeJson(key: string, value: unknown) {
 	} catch (error) {
 		console.warn('Unable to save local player state', { key, error });
 	}
+}
+
+function compactStoredQueue(queue: QueueTrack[], currentIndex: number) {
+	const compacted = compactQueue(queue);
+	if (compacted.length <= maxStoredQueueTracks) {
+		return {
+			queue: compacted,
+			currentIndex: Math.min(Math.max(currentIndex, 0), compacted.length - 1)
+		};
+	}
+	const currentTrack = queue[currentIndex];
+	const compactCurrentIndex = currentTrack ? compacted.findIndex((track) => track.id === currentTrack.id) : -1;
+	const start = Math.max(0, Math.min(compactCurrentIndex - Math.floor(maxStoredQueueTracks / 2), compacted.length - maxStoredQueueTracks));
+	const sliced = compacted.slice(start, start + maxStoredQueueTracks);
+	return {
+		queue: sliced,
+		currentIndex: Math.max(0, sliced.findIndex((track) => currentTrack && track.id === currentTrack.id))
+	};
+}
+
+function compactQueue(queue: QueueTrack[]): QueueTrack[] {
+	return queue.filter(isQueueTrack).map((track) => ({
+		id: track.id,
+		title: track.title,
+		artist: track.artist,
+		album: track.album,
+		albumId: typeof track.albumId === 'number' && Number.isFinite(track.albumId) ? track.albumId : null,
+		coverArtId: track.coverArtId ?? null,
+		duration: typeof track.duration === 'number' && Number.isFinite(track.duration) ? track.duration : null
+	}));
+}
+
+function isQueueTrack(track: QueueTrack | unknown): track is QueueTrack {
+	const candidate = track as Partial<QueueTrack> | null;
+	return Boolean(candidate && Number.isFinite(candidate.id) && candidate.title && candidate.artist && candidate.album);
 }
 
 function clampVolume(value: number | null | undefined) {

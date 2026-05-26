@@ -1,107 +1,194 @@
-# Music Listening Dashboard (Self-hosted MVP)
+# sz0mtify
 
-Monorepo with:
-- `backend/`: Rust (Axum + SQLx + SQLite)
-- `frontend/`: SvelteKit + TypeScript monochrome dashboard
-- `docker-compose.yml`: local development stack
+<p align="center">
+  <img src=".github/assets/overview.webp" alt="sz0mtify music player and dashboard" width="900" />
+</p>
 
-## Quick start
-1. Copy env file:
+<p align="center">
+  <img alt="SvelteKit" src="https://img.shields.io/badge/SvelteKit-2-ff3e00?style=for-the-badge&logo=svelte&logoColor=white" />
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5-3178c6?style=for-the-badge&logo=typescript&logoColor=white" />
+  <img alt="Rust" src="https://img.shields.io/badge/Rust-2021-b7410e?style=for-the-badge&logo=rust&logoColor=white" />
+  <img alt="SQLite" src="https://img.shields.io/badge/SQLite-local-003b57?style=for-the-badge&logo=sqlite&logoColor=white" />
+  <img alt="Capacitor" src="https://img.shields.io/badge/Capacitor-iOS-119eff?style=for-the-badge&logo=capacitor&logoColor=white" />
+  <img alt="Docker" src="https://img.shields.io/badge/Docker-ready-2496ed?style=for-the-badge&logo=docker&logoColor=white" />
+</p>
+
+<p align="center">
+  A self-hosted music analytics and listening companion for Subsonic/Navidrome libraries.
+  sz0mtify turns your library into charts, discovery lists, storage insight, playlists,
+  mobile playback, and a clean app-like interface.
+</p>
+
+## What It Does
+
+sz0mtify is built for people who host their own music and still want the polished parts of a modern music app: fast browsing, rich stats, queue controls, offline-friendly mobile behavior, and a dashboard that makes your library feel alive.
+
+It connects to your Subsonic-compatible server, keeps credentials server-side, and lets the frontend choose the backend URL safely at login.
+
+## Gallery
+
+### Desktop
+
+| Overview | Albums |
+| --- | --- |
+| <img src=".github/assets/overview.webp" alt="Overview dashboard" width="420" /> | <img src=".github/assets/albums.webp" alt="Album grid" width="420" /> |
+
+| Playlist | Settings |
+| --- | --- |
+| <img src=".github/assets/playlist.webp" alt="Playlist page" width="420" /> | <img src=".github/assets/settings.webp" alt="Settings and theming" width="420" /> |
+
+| Login |
+| --- |
+| <img src=".github/assets/login.webp" alt="Backend URL and sign in screen" width="860" /> |
+
+### Mobile App
+
+| Player | Playlist | Lyrics |
+| --- | --- | --- |
+| <img src=".github/assets/app_player.webp" alt="Mobile player" width="260" /> | <img src=".github/assets/app_playlist.webp" alt="Mobile playlist" width="260" /> | <img src=".github/assets/app_lyrics.webp" alt="Mobile lyrics view" width="260" /> |
+
+## Features
+
+### Library Browsing
+
+- Albums, artists, playlists, tracks, genres, and search.
+- Detail pages with back navigation that remembers where you came from.
+- Pagination for large libraries.
+- Cover art proxying through the backend so media credentials stay private.
+
+### Listening And Analytics
+
+- Overview dashboard for library health and listening shape.
+- Top artists, albums, tracks, current rotation, rediscovery candidates, and timeline charts.
+- Genre, format, bitrate, extension, content type, and storage breakdowns.
+- Metadata health and suspicious file views for cleanup.
+
+### Player Experience
+
+- Full player with queue, history, adjacent-track views, and mobile expansion.
+- Playlist and album playback actions.
+- Track actions for sharing, queueing, downloading, and local management.
+- Lyrics-focused mobile view.
+- Short-lived stream tokens for safer audio playback.
+
+### Discovery
+
+- Last.fm-powered discovery from artists already in your library.
+- Missing albums, new release candidates, and similar artists.
+- Cached discovery data so refreshes are practical and repeatable.
+
+### Mobile And Native
+
+- Responsive layout tuned for phone screens.
+- iOS Capacitor wrapper.
+- Swipe gestures for navigation and mobile menu behavior.
+- Local media support for downloaded albums, playlists, and tracks.
+- Mobile-safe image behavior that avoids messy long-press browser menus.
+
+### Settings And Personalization
+
+- Light and dark mode.
+- Multiple color palettes.
+- Backend URL entry on login with `/api/health` validation.
+- Subsonic/Navidrome and Last.fm settings.
+- Sync controls and sync statistics.
+
+## Quick Start
+
+1. Copy the example environment file.
+
    ```bash
    cp .env.example .env
    ```
-2. Start:
+
+2. Add an app password in `.env`.
+
+   ```bash
+   APP_PASSWORD=change-me
+   ```
+
+3. Start the app.
+
    ```bash
    docker compose up --build
    ```
-3. Open frontend: `http://localhost:5173`
-4. Health check: `http://localhost:8080/api/health`
 
-## Backend local dev
-```bash
-cd backend
-cargo fmt
-cargo clippy -- -D warnings
-cargo run
+4. Open the frontend.
+
+   ```text
+   http://localhost:5173
+   ```
+
+On the login screen, enter your backend URL, usually:
+
+```text
+http://localhost:8080
 ```
 
-## Frontend local dev
+The app checks the backend health endpoint before saving the URL.
+
+## Configuration
+
+The app can be started with very little configuration. These are the values most people care about:
+
+| Variable | Purpose |
+| --- | --- |
+| `APP_PASSWORD` | Password for the sz0mtify login. |
+| `SUBSONIC_BASE_URL` | Your Navidrome/Subsonic server URL. |
+| `SUBSONIC_USERNAME` | Music server username. |
+| `SUBSONIC_PASSWORD` | Music server password. |
+| `LASTFM_API_KEY` | Enables discovery and Last.fm enrichment. |
+| `FRONTEND_BASE_URL` | Public frontend URL when deploying. |
+| `CAPACITOR` | Keeps iOS app origins allowed. Defaults to `true`. |
+
+Subsonic and Last.fm values can also be entered from the settings screen.
+
+## Local Development
+
+Frontend:
+
 ```bash
 cd frontend
 npm install
 npm run dev
-npm run check
-npm run lint
-npm run format
 ```
 
-## iOS local bundle
-The frontend is built as a static SvelteKit SPA and wrapped by Capacitor for iOS.
+Backend:
 
-1. Set the API URL in `.env` before building:
-   ```bash
-   FRONTEND_API_BASE_URL=https://kaori.szomszed.me
-   FRONTEND_ALLOWED_ORIGINS=https://kaori.szomszed.me,capacitor://localhost
-   ```
-2. Build and sync the native project:
-   ```bash
-   cd frontend
-   npm run build:mobile
-   npm run cap:open:ios
-   ```
+```bash
+cd backend
+cargo run
+```
 
-`frontend/static/config.js` is copied into the bundle and can override the API URL at runtime with `window.__ARCHIVE_CONFIG__.apiBaseUrl`. The Docker frontend image rewrites that file from `FRONTEND_API_BASE_URL` when the container starts.
+Quality checks:
 
-The audio player uses short-lived stream tokens from `POST /api/auth/stream-token` because native media elements cannot attach custom `Authorization` headers to stream URLs.
+```bash
+cd frontend && npm run check
+cd backend && cargo test
+```
 
-## Backend behavior
+## iOS
 
-The backend syncs library metadata from a Subsonic/Navidrome server and enriches artists through Last.fm. Configure:
+The iOS app is a Capacitor wrapper around the static frontend.
 
-- `SUBSONIC_BASE_URL`
-- `SUBSONIC_USERNAME`
-- `SUBSONIC_PASSWORD`
-- `SUBSONIC_API_VERSION` optional, defaults to `1.16.1`
-- `LASTFM_API_KEY`
+```bash
+cd frontend
+npm run build:mobile
+npm run cap:open:ios # requires macos for calling xcode
+```
 
-The app has a single-user login. Configure either `APP_PASSWORD` for a plain password or `APP_PASSWORD_SHA256` for a SHA-256 password hash. `APP_SESSION_TTL_HOURS` controls normal login sessions, and `APP_STREAM_TOKEN_TTL_SECONDS` controls short-lived audio stream URL tokens.
+## Stack
 
-### Storage stats
+| Layer | Tools |
+| --- | --- |
+| Frontend | SvelteKit, TypeScript, SCSS, ECharts |
+| Backend | Rust, Axum, SQLx |
+| Data | SQLite |
+| Music source | Subsonic/Navidrome-compatible APIs |
+| Discovery | Last.fm |
+| Mobile | Capacitor iOS |
+| Deployment | Docker Compose |
 
-`GET /api/stats/storage` treats track file size as the source of truth. `total_storage_bytes` and `tracks_size_bytes` both equal `SUM(tracks.size_bytes)`. Album, artist, genre, format, content-type, and extension storage values are aggregations over tracks, so album totals are not added again to total storage.
+## Status
 
-### Listening stats
-
-`GET /api/stats/listening` prefers timestamped rows in `plays`. If `plays` is empty, it falls back to imported Subsonic/Navidrome `tracks.play_count`. If neither source has data, top lists are empty and `data_source` is `"none"`. Timeline data is only generated from timestamped play events.
-
-### Cover art
-
-`GET /api/cover/:cover_art_id` proxies Subsonic/Navidrome `getCoverArt` and returns image bytes with an image `Content-Type` when available. Credentials stay server-side and are never exposed in response URLs, bodies, or headers. Invalid or missing cover IDs return JSON errors.
-
-### Discovery
-
-`POST /api/discovery/refresh` analyzes favorite local artists and stores Last.fm-powered discovery rows in SQLite. It calls and caches:
-
-- `artist.getInfo`
-- `artist.getTopAlbums`
-- `artist.getTopTracks`
-- `artist.getSimilar`
-
-Last.fm responses are cached in `api_cache`; default TTL is 7 days for artist info/top albums/top tracks and 14 days for similar artists. Cache keys include the Last.fm method and normalized parameters. Individual Last.fm failures are recorded in the refresh response and do not abort the whole refresh.
-
-Discovery read endpoints return stored rows:
-
-- `GET /api/discovery/missing-albums`
-- `GET /api/discovery/new-releases`
-- `GET /api/discovery/similar-artists`
-
-They support `limit`, `offset`, and `include_owned=true`. Owned items are hidden by default where applicable. Results include match status, confidence score, source URL, cover URL, reason, and generated timestamp.
-
-Known limitations:
-
-- Last.fm release dates may be incomplete or absent.
-- Last.fm top albums/tracks are popularity lists, not guaranteed chronological new releases.
-- Discovery matching is fuzzy and confidence-based.
-
-## Seed/mock mode
-Set `SEED_MODE=true` in `.env` to allow frontend development without valid API credentials.
+sz0mtify is a self-hosted personal music app. It favors practical features, private credentials, local ownership, and a native-feeling mobile experience over a public multi-user service.

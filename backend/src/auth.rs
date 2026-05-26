@@ -66,6 +66,8 @@ pub struct AuthUser {
     pub username: String,
 }
 
+pub const SESSION_COOKIE_NAME: &str = "archive_session";
+
 impl AppAuth {
     pub fn from_env(pool: sqlx::SqlitePool) -> anyhow::Result<Self> {
         let username = env_string("APP_USERNAME").unwrap_or_else(|| "admin".to_string());
@@ -182,9 +184,7 @@ impl AppAuth {
             }
         };
 
-        let Some((username, expires_at)) = row else {
-            return None;
-        };
+        let (username, expires_at) = row?;
 
         if expires_at <= now as i64 {
             if let Err(error) = self.logout(token).await {
@@ -280,7 +280,7 @@ pub async fn require_app_session(
         return next.run(request).await;
     }
 
-    let user = if let Some(token) = bearer_token(request.headers()) {
+    let user = if let Some(token) = app_session_token(request.headers()) {
         auth.authenticate(token).await
     } else if is_stream_path(path) {
         match stream_token_query(request.uri().query()) {
@@ -306,6 +306,22 @@ pub fn bearer_token(headers: &HeaderMap) -> Option<&str> {
         .and_then(|value| value.strip_prefix("Bearer "))
         .map(str::trim)
         .filter(|value| !value.is_empty())
+}
+
+pub fn app_session_token(headers: &HeaderMap) -> Option<&str> {
+    bearer_token(headers).or_else(|| session_cookie(headers))
+}
+
+fn session_cookie(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get(header::COOKIE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| {
+            value.split(';').find_map(|part| {
+                let (name, token) = part.trim().split_once('=')?;
+                (name == SESSION_COOKIE_NAME && !token.trim().is_empty()).then(|| token.trim())
+            })
+        })
 }
 
 fn is_stream_path(path: &str) -> bool {

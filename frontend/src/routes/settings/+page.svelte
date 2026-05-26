@@ -1,14 +1,25 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { Loader2, MoreHorizontal, Trash2 } from 'lucide-svelte';
+	import { ChevronDown, ChevronUp, Loader2, MoreHorizontal, Trash2 } from 'lucide-svelte';
 	import { api } from '$lib/api';
 	import { clearAuthSession } from '$lib/auth';
 	import type { ActiveSession, SyncStatus } from '$lib/types';
-	import DataTable from '$lib/components/DataTable.svelte';
 	import ErrorState from '$lib/components/ErrorState.svelte';
 	import StatCard from '$lib/components/StatCard.svelte';
 	import { apiBase } from '$lib/format';
 	import { initNetworkStatus, networkStatus } from '$lib/mobileNetwork';
+	import { themeSettings, updateTheme, type ThemeMode, type ThemePalette } from '$lib/theme';
+
+	const themeModes: { value: ThemeMode; label: string }[] = [
+		{ value: 'dark', label: 'Dark' },
+		{ value: 'light', label: 'Light' }
+	];
+	const themePalettes: { value: ThemePalette; label: string }[] = [
+		{ value: 'monochrome', label: 'Mono' },
+		{ value: 'ocean', label: 'Ocean' },
+		{ value: 'forest', label: 'Forest' },
+		{ value: 'rose', label: 'Rose' }
+	];
 
 	let health: { ok: boolean; status: string } | null = null;
 	let status: SyncStatus = [];
@@ -18,6 +29,7 @@
 	let error = '';
 	let busy = '';
 	let openSessionMenuId: string | null = null;
+	let expandedSessionId: string | null = null;
 	let deletingSessionId: string | null = null;
 	let sessionTableRoot: HTMLDivElement | null = null;
 	let transcodeMode = 'never';
@@ -48,6 +60,10 @@
 			hour: '2-digit',
 			minute: '2-digit'
 		}).format(new Date(value * 1000));
+	}
+
+	function displayCell(value: string | number | null | undefined) {
+		return value === null || value === undefined || value === '' ? '—' : String(value);
 	}
 
 	async function saveTranscoding() {
@@ -90,6 +106,10 @@
 
 	function toggleSessionMenu(sessionId: string) {
 		openSessionMenuId = openSessionMenuId === sessionId ? null : sessionId;
+	}
+
+	function toggleSessionDetails(sessionId: string) {
+		expandedSessionId = expandedSessionId === sessionId ? null : sessionId;
 	}
 
 	async function deleteSession(session: ActiveSession) {
@@ -139,6 +159,33 @@
 	<button class="button ghost" disabled={!!busy} on:click={() => run('Discovery refresh', () => api.refreshDiscovery(10))}>Discovery Refresh</button>
 	{#if message}<span class="muted">{message}</span>{/if}
 </div>
+<section class="settings-panel theme-settings-panel">
+	<div>
+		<p class="eyebrow">Appearance</p>
+		<h2>Theme</h2>
+	</div>
+	<div class="theme-control">
+		<span>Mode</span>
+		<div class="segmented-control" role="group" aria-label="Theme mode">
+			{#each themeModes as mode}
+				<button class:active={$themeSettings.mode === mode.value} type="button" on:click={() => updateTheme({ mode: mode.value })}>
+					{mode.label}
+				</button>
+			{/each}
+		</div>
+	</div>
+	<div class="theme-control palette-control">
+		<span>Palette</span>
+		<div class="palette-options" role="group" aria-label="Theme palette">
+			{#each themePalettes as palette}
+				<button class:active={$themeSettings.palette === palette.value} class={`palette-option ${palette.value}`} type="button" on:click={() => updateTheme({ palette: palette.value })}>
+					<span class="palette-swatch"></span>
+					<span>{palette.label}</span>
+				</button>
+			{/each}
+		</div>
+	</div>
+</section>
 <section class="settings-panel">
 	<div>
 		<p class="eyebrow">Playback</p>
@@ -164,8 +211,8 @@
 	</label>
 	<button class="button" disabled={!!busy} on:click={saveTranscoding}>Save Playback</button>
 </section>
-<div class="table-wrap" bind:this={sessionTableRoot}>
-	<table>
+<div class="table-wrap session-table-wrap" bind:this={sessionTableRoot}>
+	<table class="session-table">
 		<thead>
 			<tr>
 				<th>Session</th>
@@ -218,6 +265,133 @@
 			{/each}
 		</tbody>
 	</table>
+	<div class="mobile-session-list">
+		{#each sessions as session}
+			<article class:open={expandedSessionId === session.session_id}>
+				<div class="mobile-session-main">
+					<div>
+						<strong>{session.session_id}</strong>
+						{#if session.current}<span>Current</span>{/if}
+					</div>
+					<div class="mobile-session-seen">
+						<span>{formatSessionTime(session.last_seen_at)}</span>
+						<button
+							class="icon-button expand-toggle"
+							type="button"
+							aria-label={`${expandedSessionId === session.session_id ? 'Hide' : 'Show'} details for ${session.session_id}`}
+							aria-expanded={expandedSessionId === session.session_id}
+							on:click={() => toggleSessionDetails(session.session_id)}
+						>
+							{#if expandedSessionId === session.session_id}<ChevronUp size={18} />{:else}<ChevronDown size={18} />{/if}
+						</button>
+					</div>
+				</div>
+				{#if expandedSessionId === session.session_id}
+					<div class="mobile-session-details">
+						<div>
+							<span>User</span>
+							<strong>{session.username}</strong>
+						</div>
+						<div>
+							<span>Created</span>
+							<strong>{formatSessionTime(session.created_at)}</strong>
+						</div>
+						<div>
+							<span>Expires</span>
+							<strong>{formatSessionTime(session.expires_at)}</strong>
+						</div>
+						<button
+							class="mobile-session-delete"
+							type="button"
+							disabled={deletingSessionId !== null}
+							on:click={() => deleteSession(session)}
+						>
+							{#if deletingSessionId === session.session_id}<Loader2 size={16} />{:else}<Trash2 size={16} />{/if}
+							<span>Delete session</span>
+						</button>
+					</div>
+				{/if}
+			</article>
+		{/each}
+	</div>
 </div>
-<DataTable columns={['ID', 'Source', 'Last Sync', 'Status', 'Error']} rows={status} />
-<DataTable columns={['Setting', 'Value']} rows={safeSettings} />
+<div class="table-wrap sync-status-wrap">
+	<table class="sync-status-table">
+		<thead>
+			<tr>
+				<th>ID</th>
+				<th>Source</th>
+				<th>Last Sync</th>
+				<th>Status</th>
+				<th>Error</th>
+			</tr>
+		</thead>
+		<tbody>
+			{#each status as row}
+				<tr>
+					<td>{row[0]}</td>
+					<td>{displayCell(row[1])}</td>
+					<td>{displayCell(row[2])}</td>
+					<td>{displayCell(row[3])}</td>
+					<td>{displayCell(row[4])}</td>
+				</tr>
+			{/each}
+		</tbody>
+	</table>
+	<div class="mobile-sync-status-list">
+		{#each status as row}
+			<article>
+				<div class="mobile-sync-status-main">
+					<strong>{displayCell(row[1])}</strong>
+					<span>{displayCell(row[3])}</span>
+				</div>
+				<div class="mobile-sync-status-details">
+					<div>
+						<span>ID</span>
+						<strong>{row[0]}</strong>
+					</div>
+					<div>
+						<span>Last Sync</span>
+						<strong>{displayCell(row[2])}</strong>
+					</div>
+					<div>
+						<span>Error</span>
+						<strong>{displayCell(row[4])}</strong>
+					</div>
+				</div>
+			</article>
+		{/each}
+	</div>
+</div>
+<div class="table-wrap settings-values-wrap">
+	<table class="settings-values-table">
+		<thead>
+			<tr>
+				<th>Setting</th>
+				<th>Value</th>
+			</tr>
+		</thead>
+		<tbody>
+			{#each safeSettings as row}
+				<tr>
+					<td>{row[0]}</td>
+					<td>{displayCell(row[1])}</td>
+				</tr>
+			{/each}
+		</tbody>
+	</table>
+	<div class="mobile-settings-values-list">
+		{#each safeSettings as row}
+			<article>
+				<div>
+					<span>Setting</span>
+					<strong>{row[0]}</strong>
+				</div>
+				<div>
+					<span>Value</span>
+					<strong>{displayCell(row[1])}</strong>
+				</div>
+			</article>
+		{/each}
+	</div>
+</div>

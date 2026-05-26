@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
 	appId: 'me.szomszed.kaori',
-	appName: 'Archive',
+	appName: 'sz0mtify',
 	webDir: 'build',
 	server: {
 		iosScheme: 'capacitor'

@@ -1,4 +1,8 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    env,
+    sync::Arc,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use axum::{
     body::{Body, Bytes},
@@ -6,7 +10,8 @@ use axum::{
     http::{
         header::{
             ACCEPT_RANGES, CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE,
-            CONTENT_TYPE, ETAG, IF_MODIFIED_SINCE, IF_NONE_MATCH, IF_RANGE, LAST_MODIFIED, RANGE,
+            CONTENT_TYPE, ETAG, FORWARDED, IF_MODIFIED_SINCE, IF_NONE_MATCH, IF_RANGE,
+            LAST_MODIFIED, ORIGIN, RANGE, SET_COOKIE,
         },
         HeaderMap, HeaderName, HeaderValue, StatusCode,
     },
@@ -17,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tracing::{error, info, warn};
 
-use crate::auth::{bearer_token, AuthUser};
+use crate::auth::{app_session_token, AuthUser, SESSION_COOKIE_NAME};
 use crate::services::discovery::{DiscoveryListOptions, DiscoveryRefreshOptions};
 use crate::services::settings::SettingsService;
 use crate::services::{sync::SubsonicConfig, AppState};
@@ -64,6 +69,153 @@ fn err(message: &str) -> Json<Value> {
     Json(json!({"ok": false, "error": message}))
 }
 
+fn set_session_cookie(
+    headers: &mut HeaderMap,
+    request_headers: &HeaderMap,
+    token: &str,
+    expires_at: u64,
+) {
+    let now = unix_now();
+    let max_age = expires_at.saturating_sub(now).max(1);
+    let secure = secure_session_cookie(request_headers);
+    let secure_attribute = if secure { "; Secure" } else { "" };
+    let same_site = session_cookie_same_site(request_headers, secure);
+    if let Ok(value) = HeaderValue::from_str(&format!(
+        "{SESSION_COOKIE_NAME}={token}; Path=/; HttpOnly; SameSite={same_site}; Max-Age={max_age}{secure_attribute}"
+    )) {
+        headers.insert(SET_COOKIE, value);
+    }
+}
+
+fn clear_session_cookie(headers: &mut HeaderMap, request_headers: &HeaderMap) {
+    let secure = secure_session_cookie(request_headers);
+    let secure_attribute = if secure { "; Secure" } else { "" };
+    let same_site = session_cookie_same_site(request_headers, secure);
+    if let Ok(value) = HeaderValue::from_str(&format!(
+        "{SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite={same_site}; Max-Age=0{secure_attribute}"
+    )) {
+        headers.insert(SET_COOKIE, value);
+    }
+}
+
+fn session_cookie_same_site(headers: &HeaderMap, secure: bool) -> &'static str {
+    if secure && request_is_cross_origin(headers) {
+        "None"
+    } else {
+        "Lax"
+    }
+}
+
+fn request_is_cross_origin(headers: &HeaderMap) -> bool {
+    let Some(origin_host) = origin_host(headers) else {
+        return false;
+    };
+    let Some(request_host) = forwarded_host(headers).or_else(|| host_header(headers)) else {
+        return true;
+    };
+
+    origin_host != request_host
+}
+
+fn origin_host(headers: &HeaderMap) -> Option<String> {
+    let origin = headers.get(ORIGIN)?.to_str().ok()?.trim();
+    let scheme_end = origin.find("://")?;
+    let authority = &origin[scheme_end + 3..];
+    let host_end = authority.find('/').unwrap_or(authority.len());
+    normalized_host(&authority[..host_end])
+}
+
+fn forwarded_host(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get("x-forwarded-host")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(',').next())
+        .and_then(normalized_host)
+}
+
+fn host_header(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get("host")
+        .and_then(|value| value.to_str().ok())
+        .and_then(normalized_host)
+}
+
+fn normalized_host(value: &str) -> Option<String> {
+    let host = value
+        .trim()
+        .trim_matches('"')
+        .rsplit_once('@')
+        .map(|(_, host)| host)
+        .unwrap_or(value.trim())
+        .trim_start_matches('[')
+        .trim_end_matches(']');
+    if host.is_empty() {
+        return None;
+    }
+    Some(host.to_ascii_lowercase())
+}
+
+fn secure_session_cookie(headers: &HeaderMap) -> bool {
+    if let Ok(value) = env::var("APP_COOKIE_SECURE") {
+        return value != "0" && !value.eq_ignore_ascii_case("false");
+    }
+
+    request_uses_https(headers)
+}
+
+fn request_uses_https(headers: &HeaderMap) -> bool {
+    header_is_https(headers, "x-forwarded-proto")
+        || forwarded_proto_is_https(headers)
+        || cloudflare_visitor_scheme_is_https(headers)
+        || header_is_https(headers, ORIGIN.as_str())
+}
+
+fn header_is_https(headers: &HeaderMap, name: &str) -> bool {
+    headers
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.trim_start().starts_with("https://") || value.trim() == "https")
+        .unwrap_or(false)
+}
+
+fn forwarded_proto_is_https(headers: &HeaderMap) -> bool {
+    headers
+        .get(FORWARDED)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| {
+            value.split(';').any(|part| {
+                let Some((name, proto)) = part.trim().split_once('=') else {
+                    return false;
+                };
+                name.eq_ignore_ascii_case("proto")
+                    && proto.trim_matches('"').eq_ignore_ascii_case("https")
+            })
+        })
+        .unwrap_or(false)
+}
+
+fn cloudflare_visitor_scheme_is_https(headers: &HeaderMap) -> bool {
+    headers
+        .get("cf-visitor")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| serde_json::from_str::<Value>(value).ok())
+        .and_then(|value| {
+            value
+                .get("scheme")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .map(|scheme| scheme.eq_ignore_ascii_case("https"))
+        .unwrap_or(false)
+}
+
+fn unix_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
 pub async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
     let db_ok = sqlx::query("SELECT 1").execute(&state.pool).await.is_ok();
     Json(json!({"ok": db_ok, "status": if db_ok { "ok" } else { "degraded" }}))
@@ -71,33 +223,52 @@ pub async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
 
 pub async fn login(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(payload): Json<LoginPayload>,
 ) -> impl IntoResponse {
     match state.auth.login(&payload.username, &payload.password).await {
-        Ok(Some(session)) => (StatusCode::OK, ok(json!(session))),
-        Ok(None) => (StatusCode::UNAUTHORIZED, err("invalid_credentials")),
+        Ok(Some(session)) => {
+            let mut response_headers = HeaderMap::new();
+            set_session_cookie(
+                &mut response_headers,
+                &headers,
+                &session.token,
+                session.expires_at,
+            );
+            (StatusCode::OK, response_headers, ok(json!(session))).into_response()
+        }
+        Ok(None) => (StatusCode::UNAUTHORIZED, err("invalid_credentials")).into_response(),
         Err(error) => {
             warn!(error = %error, "failed to create login session");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 err("failed_to_create_session"),
             )
+                .into_response()
         }
     }
 }
 
 pub async fn logout(State(state): State<Arc<AppState>>, headers: HeaderMap) -> impl IntoResponse {
-    if let Some(token) = bearer_token(&headers) {
+    if let Some(token) = app_session_token(&headers) {
         if let Err(error) = state.auth.logout(token).await {
             warn!(error = %error, "failed to revoke session");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 err("failed_to_revoke_session"),
-            );
+            )
+                .into_response();
         }
     }
 
-    (StatusCode::OK, ok(json!({"status": "signed_out"})))
+    let mut response_headers = HeaderMap::new();
+    clear_session_cookie(&mut response_headers, &headers);
+    (
+        StatusCode::OK,
+        response_headers,
+        ok(json!({"status": "signed_out"})),
+    )
+        .into_response()
 }
 
 pub async fn me(Extension(user): Extension<AuthUser>) -> Json<Value> {
@@ -108,7 +279,11 @@ pub async fn active_sessions(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    match state.auth.active_sessions(bearer_token(&headers)).await {
+    match state
+        .auth
+        .active_sessions(app_session_token(&headers))
+        .await
+    {
         Ok(sessions) => (StatusCode::OK, ok(json!(sessions))),
         Err(error) => {
             warn!(error = %error, "failed to load active sessions");
@@ -1017,7 +1192,7 @@ async fn register_subsonic_scrobble(
     )
     .await
     .map(|_| ())
-    .map_err(|error| TrackStreamError::Upstream(error.into()))
+    .map_err(TrackStreamError::Upstream)
 }
 
 async fn track_subsonic_id(
@@ -1176,9 +1351,7 @@ async fn fetch_subsonic_track_lyrics(
         }
     }
 
-    let Some(artist) = metadata.artist.as_deref() else {
-        return None;
-    };
+    let artist = metadata.artist.as_deref()?;
 
     match subsonic_json_with_client(
         client,
@@ -1557,7 +1730,7 @@ async fn stream_transcode_quality(
     let mode = settings
         .get_value(pool, "stream_transcode_mode")
         .await
-        .map_err(|error| TrackStreamError::Upstream(error.into()))?
+        .map_err(TrackStreamError::Upstream)?
         .unwrap_or_else(|| "never".to_string());
     let should_transcode = match mode.as_str() {
         "always" => true,
@@ -1574,7 +1747,7 @@ async fn stream_transcode_quality(
     let quality = settings
         .get_value(pool, "stream_transcode_quality")
         .await
-        .map_err(|error| TrackStreamError::Upstream(error.into()))?
+        .map_err(TrackStreamError::Upstream)?
         .and_then(|value| value.parse::<u16>().ok())
         .filter(|value| matches!(value, 96 | 128 | 192 | 256 | 320))
         .unwrap_or(192);
@@ -1612,11 +1785,11 @@ fn streaming_response(
     }
     headers.insert(
         CACHE_CONTROL,
-        if mode == StreamResponseMode::Transcoded {
-            HeaderValue::from_static("private, no-store")
-        } else {
-            HeaderValue::from_static("private, max-age=86400")
-        },
+        HeaderValue::from_static("private, no-store, max-age=0"),
+    );
+    headers.insert(
+        HeaderName::from_static("referrer-policy"),
+        HeaderValue::from_static("no-referrer"),
     );
     if let Ok(disposition) = HeaderValue::from_str(&format!(
         "inline; filename=\"{}\"",
@@ -1678,10 +1851,7 @@ fn stream_content_type(metadata: &TrackStreamMetadata, mode: StreamResponseMode)
     }
 }
 
-fn stream_suffix<'a>(
-    metadata: &'a TrackStreamMetadata,
-    mode: StreamResponseMode,
-) -> Option<&'a str> {
+fn stream_suffix(metadata: &TrackStreamMetadata, mode: StreamResponseMode) -> Option<&str> {
     if mode == StreamResponseMode::Transcoded {
         Some("mp3")
     } else {
@@ -2155,7 +2325,7 @@ mod tests {
             headers
                 .get(CACHE_CONTROL)
                 .and_then(|value| value.to_str().ok()),
-            Some("private, max-age=86400")
+            Some("private, no-store, max-age=0")
         );
         assert_eq!(&body[..], b"cdef");
     }
@@ -2308,7 +2478,7 @@ mod tests {
             headers
                 .get(CACHE_CONTROL)
                 .and_then(|value| value.to_str().ok()),
-            Some("private, no-store")
+            Some("private, no-store, max-age=0")
         );
         assert_eq!(&body[..], b"transcoded-mp3");
     }
@@ -2436,5 +2606,65 @@ mod tests {
         register_track_now_playing(&pool, 1).await.unwrap();
         register_track_scrobble(&pool, 1).await.unwrap();
         server.await.unwrap();
+    }
+
+    #[test]
+    fn session_cookie_security_detects_https_proxy_headers() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-proto", HeaderValue::from_static("https"));
+
+        assert!(request_uses_https(&headers));
+
+        headers.clear();
+        headers.insert(
+            FORWARDED,
+            HeaderValue::from_static("for=192.0.2.60;proto=https"),
+        );
+
+        assert!(request_uses_https(&headers));
+
+        headers.clear();
+        headers.insert(
+            "cf-visitor",
+            HeaderValue::from_static(r#"{"scheme":"https"}"#),
+        );
+
+        assert!(request_uses_https(&headers));
+    }
+
+    #[test]
+    fn session_cookie_security_allows_plain_http_without_override() {
+        let mut headers = HeaderMap::new();
+        headers.insert(ORIGIN, HeaderValue::from_static("http://localhost:5173"));
+
+        assert!(!request_uses_https(&headers));
+    }
+
+    #[test]
+    fn session_cookie_uses_same_site_none_for_secure_cross_origin_app_requests() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "cf-visitor",
+            HeaderValue::from_static(r#"{"scheme":"https"}"#),
+        );
+        headers.insert(ORIGIN, HeaderValue::from_static("capacitor://localhost"));
+        headers.insert("host", HeaderValue::from_static("archive.example.com"));
+
+        assert_eq!(session_cookie_same_site(&headers, true), "None");
+    }
+
+    #[test]
+    fn session_cookie_keeps_lax_for_same_origin_and_plain_http_requests() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            ORIGIN,
+            HeaderValue::from_static("https://archive.example.com"),
+        );
+        headers.insert("host", HeaderValue::from_static("archive.example.com"));
+
+        assert_eq!(session_cookie_same_site(&headers, true), "Lax");
+
+        headers.insert(ORIGIN, HeaderValue::from_static("capacitor://localhost"));
+        assert_eq!(session_cookie_same_site(&headers, false), "Lax");
     }
 }

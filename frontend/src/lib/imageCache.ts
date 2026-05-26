@@ -5,7 +5,10 @@ import { localImageObjectUrl } from '$lib/localMedia';
 
 const CACHE_NAME = 'music-dashboard-images-v1';
 const MAX_MEMORY_IMAGES = 240;
+const MAX_DISK_IMAGES = 400;
+const MAX_DISK_BYTES = 120 * 1024 * 1024;
 const FAILURE_TTL_MS = 5 * 60 * 1000;
+const DISK_PRUNE_INTERVAL_MS = 60 * 1000;
 
 type ImageCacheEntry = {
 	objectUrl?: string;
@@ -15,6 +18,7 @@ type ImageCacheEntry = {
 };
 
 const memoryCache = new Map<string, ImageCacheEntry>();
+let lastDiskPruneAt = 0;
 
 export async function loadCachedImage(src: string): Promise<string> {
 	const cacheKey = dashboardApiImageUrl(src);
@@ -91,13 +95,25 @@ async function fetchCachedBlob(url: string): Promise<Blob> {
 
 		const response = await fetch(url, { cache: 'force-cache', credentials: 'include', headers });
 		if (!response.ok) throw new Error(`image_fetch_failed_${response.status}`);
-		await cache.put(url, response.clone());
-		return response.blob();
+		const blob = await response.blob();
+		await cache.put(url, cacheableImageResponse(response, blob));
+		void pruneDiskImageCache(cache);
+		return blob;
 	}
 
 	const response = await fetch(url, { cache: 'force-cache', credentials: 'include', headers });
 	if (!response.ok) throw new Error(`image_fetch_failed_${response.status}`);
 	return response.blob();
+}
+
+function cacheableImageResponse(response: Response, blob: Blob): Response {
+	const headers = new Headers(response.headers);
+	headers.set('x-music-dashboard-cached-at', String(Date.now()));
+	return new Response(blob, {
+		headers,
+		status: response.status,
+		statusText: response.statusText
+	});
 }
 
 function authHeaders(): HeadersInit | undefined {
@@ -115,5 +131,39 @@ function evictOldImages() {
 	for (const [key, entry] of entries.slice(0, memoryCache.size - MAX_MEMORY_IMAGES)) {
 		if (entry.objectUrl) URL.revokeObjectURL(entry.objectUrl);
 		memoryCache.delete(key);
+	}
+}
+
+async function pruneDiskImageCache(cache: Cache) {
+	const now = Date.now();
+	if (now - lastDiskPruneAt < DISK_PRUNE_INTERVAL_MS) return;
+	lastDiskPruneAt = now;
+
+	const requests = await cache.keys();
+	const entries = await Promise.all(
+		requests.map(async (request) => {
+			const response = await cache.match(request);
+			if (!response) return null;
+			const blob = await response.clone().blob();
+			return {
+				request,
+				bytes: blob.size,
+				storedAt: Number(response.headers.get('x-music-dashboard-cached-at') ?? response.headers.get('date') ?? 0)
+			};
+		})
+	);
+
+	const imageEntries = entries
+		.filter((entry): entry is NonNullable<(typeof entries)[number]> => entry !== null)
+		.sort((a, b) => a.storedAt - b.storedAt);
+
+	let totalBytes = imageEntries.reduce((sum, entry) => sum + entry.bytes, 0);
+	let totalImages = imageEntries.length;
+
+	for (const entry of imageEntries) {
+		if (totalImages <= MAX_DISK_IMAGES && totalBytes <= MAX_DISK_BYTES) break;
+		await cache.delete(entry.request);
+		totalBytes -= entry.bytes;
+		totalImages -= 1;
 	}
 }

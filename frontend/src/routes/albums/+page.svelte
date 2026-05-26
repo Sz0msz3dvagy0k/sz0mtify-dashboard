@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
+	import { goto } from '$app/navigation';
+	import { page as routePage } from '$app/stores';
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api';
 	import type { AlbumTuple, ArtistTuple, StorageStats } from '$lib/types';
@@ -38,6 +40,8 @@
 	let sort = storedAlbumSort();
 	let itemsPerPage = 18;
 	let page = 1;
+	let syncedPage = 1;
+	let pendingPage: number | null = null;
 
 	async function load() {
 		loading = true;
@@ -86,7 +90,7 @@
 	$: largestTableRows = largest.slice(0, 8).map((a, index) => ({
 		id: a[0] ?? `album-${index}`,
 		title: a[1] ?? 'Unknown album',
-		href: a[0] ? `/albums/${a[0]}` : null,
+		href: a[0] ? detailHref(`/albums/${a[0]}`) : null,
 		details: [
 			['Artist', artistMap.get(a[2] ?? -1) ?? 'Unknown'],
 			['Size', formatBytes(a[3])],
@@ -94,8 +98,40 @@
 		] as [string, string | number | null | undefined][]
 	}));
 	$: if (page > Math.max(1, Math.ceil(filtered.length / itemsPerPage))) page = 1;
+	$: urlPage = pageFromUrl();
+	$: if (pendingPage !== null && urlPage === pendingPage) pendingPage = null;
+	$: if (pendingPage === null && urlPage !== syncedPage) {
+		syncedPage = urlPage;
+		page = urlPage;
+	}
 
 	onMount(load);
+
+	function pageFromUrl() {
+		const value = Number($routePage.url.searchParams.get('page'));
+		return Number.isFinite(value) && value > 0 ? Math.floor(value) : 1;
+	}
+
+	function pageUrl(index: number) {
+		const url = new URL($routePage.url);
+		if (index <= 1) {
+			url.searchParams.delete('page');
+		} else {
+			url.searchParams.set('page', String(index));
+		}
+		return `${url.pathname}${url.search}${url.hash}`;
+	}
+
+	function detailHref(path: string) {
+		return `${path}?from=${encodeURIComponent(pageUrl(page))}`;
+	}
+
+	function rememberPage(nextPage: number) {
+		if (!browser) return;
+		syncedPage = nextPage;
+		pendingPage = nextPage;
+		void goto(pageUrl(nextPage), { replaceState: true, noScroll: true, keepFocus: true });
+	}
 
 	function albumArtistName(album: AlbumTuple): string {
 		return album[6] ?? artistMap.get(album[2] ?? -1) ?? 'Unknown artist';
@@ -177,10 +213,10 @@
 	{#if filtered.length}
 		<div class="media-grid">
 			{#each visibleAlbums as album}
-				<AlbumCard id={album[0]} title={album[1]} artist={albumArtistName(album)} year={album[3]} genre={album[4]} coverArtId={album[5]} />
+				<AlbumCard id={album[0]} title={album[1]} artist={albumArtistName(album)} year={album[3]} genre={album[4]} coverArtId={album[5]} href={detailHref(`/albums/${album[0]}`)} />
 			{/each}
 		</div>
-		<ItemsPerPage bind:value={itemsPerPage} bind:page total={filtered.length} shown={visibleAlbums.length} />
+		<ItemsPerPage bind:value={itemsPerPage} bind:page total={filtered.length} shown={visibleAlbums.length} onPageChange={rememberPage} />
 	{:else}
 		<EmptyState title="No albums match" />
 	{/if}

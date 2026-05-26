@@ -400,21 +400,25 @@
 		const assetId = nativeAssetId(trackId);
 		const source = await nativeLosslessAudioSource(trackId);
 		if (requestId !== streamRequestId || currentTrack?.id !== trackId) return;
+		const track = currentTrack;
+		if (!track) return;
 
-		await unloadNativeAsset(nativeLoadedAssetId);
+		const previousAssetId = nativeLoadedAssetId;
 		nativeLoadedAssetId = null;
 		nativePlayingAssetId = null;
+		await unloadNativeAsset(previousAssetId);
 		if ($player.isPlaying) pendingAutoplayTrackId = trackId;
-		const artworkUrl = await nativeNotificationArtworkUrl(currentTrack);
+		const artworkUrl = await nativeNotificationArtworkUrl(track);
+		if (requestId !== streamRequestId || currentTrack?.id !== trackId) return;
 		await NativeAudio.preload({
 			assetId,
 			assetPath: source.assetPath,
 			isUrl: source.isUrl,
 			volume: nativeVolume($player.volume),
 			notificationMetadata: {
-				title: currentTrack?.title,
-				artist: currentTrack?.artist,
-				album: currentTrack?.album,
+				title: track.title,
+				artist: track.artist,
+				album: track.album,
 				artworkUrl
 			}
 		});
@@ -490,7 +494,11 @@
 			if (nativePlayingAssetId === assetId) {
 				await NativeAudio.resume({ assetId });
 			} else {
-				await NativeAudio.play({ assetId, time: currentTime, volume: nativeVolume($player.volume) });
+				await NativeAudio.play({
+					assetId,
+					time: pendingAutoplayTrackId === trackId ? 0 : currentTime,
+					volume: nativeVolume($player.volume)
+				});
 			}
 			nativePlayingAssetId = assetId;
 			pendingAutoplayTrackId = null;
@@ -911,6 +919,14 @@
 				handleNativeAudioEnded();
 			});
 			nativePlaybackStateHandle = await NativeAudio.addListener('playbackState', (event) => {
+				if (event.reason === 'remoteNext') {
+					if (event.assetId === nativeLoadedAssetId) playNext();
+					return;
+				}
+				if (event.reason === 'remotePrevious') {
+					if (event.assetId === nativeLoadedAssetId) playPrevious();
+					return;
+				}
 				if (event.assetId !== nativeLoadedAssetId) return;
 				handleNativePlaybackState(event.state, event.currentTime, event.duration);
 			});

@@ -46,7 +46,34 @@ export class ApiError extends Error {
 	}
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+const READ_CACHE_TTL_MS = 30 * 1000;
+const readCache = new Map<string, { expiresAt: number; promise: Promise<unknown> }>();
+
+type RequestOptions = {
+	cacheTtlMs?: number;
+};
+
+async function request<T>(path: string, init?: RequestInit, options: RequestOptions = {}): Promise<T> {
+	const method = init?.method?.toUpperCase() ?? 'GET';
+	const cacheTtlMs = method === 'GET' ? options.cacheTtlMs : undefined;
+	if (cacheTtlMs) {
+		const cacheKey = `${method}:${path}`;
+		const cached = readCache.get(cacheKey);
+		if (cached && cached.expiresAt > Date.now()) return cached.promise as Promise<T>;
+
+		const promise = performRequest<T>(path, init).catch((error) => {
+			readCache.delete(cacheKey);
+			throw error;
+		});
+		readCache.set(cacheKey, { expiresAt: Date.now() + cacheTtlMs, promise });
+		return promise;
+	}
+
+	if (method !== 'GET') readCache.clear();
+	return performRequest<T>(path, init);
+}
+
+async function performRequest<T>(path: string, init?: RequestInit): Promise<T> {
 	const headers = new Headers(init?.headers);
 	if (!headers.has('content-type')) headers.set('content-type', 'application/json');
 	const token = getAuthToken();
@@ -59,12 +86,19 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 	});
 	const payload = (await response.json().catch(() => null)) as ApiEnvelope<T> | null;
 	if (!response.ok) {
-		if (response.status === 401) clearAuthSession();
+		if (response.status === 401) {
+			readCache.clear();
+			clearAuthSession();
+		}
 		throw new ApiError(payload && 'error' in payload ? payload.error : response.statusText, response.status);
 	}
 	if (!payload) throw new ApiError('Empty response', response.status);
 	if (!payload.ok) throw new ApiError(payload.error, response.status);
 	return payload.data;
+}
+
+function cachedRequest<T>(path: string, cacheTtlMs = READ_CACHE_TTL_MS): Promise<T> {
+	return request<T>(path, undefined, { cacheTtlMs });
 }
 
 async function offlineFallback<T>(remote: () => Promise<T>, local: () => Promise<T>): Promise<T> {
@@ -101,36 +135,36 @@ export const api = {
 	syncAll: () => request<unknown>('/api/sync/all', { method: 'POST' }),
 	syncSubsonic: () => request<unknown>('/api/sync/subsonic', { method: 'POST' }),
 	syncLastfm: () => request<unknown>('/api/sync/lastfm', { method: 'POST' }),
-	overview: () => request<Overview>('/api/library/overview'),
-	tracks: () => offlineFallback(() => request<TrackTuple[]>('/api/library/tracks'), offlineTracks),
-	track: (id: number) => request<TrackDetail>(`/api/library/tracks/${id}`),
-	albums: () => offlineFallback(() => request<AlbumTuple[]>('/api/library/albums'), offlineAlbums),
-	album: (id: number) => offlineFallback(() => request<AlbumDetail>(`/api/library/albums/${id}`), () => offlineAlbum(id)),
+	overview: () => cachedRequest<Overview>('/api/library/overview'),
+	tracks: () => offlineFallback(() => cachedRequest<TrackTuple[]>('/api/library/tracks'), offlineTracks),
+	track: (id: number) => cachedRequest<TrackDetail>(`/api/library/tracks/${id}`),
+	albums: () => offlineFallback(() => cachedRequest<AlbumTuple[]>('/api/library/albums'), offlineAlbums),
+	album: (id: number) => offlineFallback(() => cachedRequest<AlbumDetail>(`/api/library/albums/${id}`), () => offlineAlbum(id)),
 	nowPlaying: (id: number) => request<unknown>(`/api/tracks/${id}/now-playing`, { method: 'POST' }),
 	scrobble: (id: number) => request<unknown>(`/api/tracks/${id}/scrobble`, { method: 'POST' }),
 	trackLyrics: (id: number) => request<TrackLyrics>(`/api/tracks/${id}/lyrics`),
-	artists: () => offlineFallback(() => request<ArtistTuple[]>('/api/library/artists'), offlineArtists),
-	artist: (id: number) => request<ArtistDetail>(`/api/library/artists/${id}`),
-	genres: () => request<GenreTuple[]>('/api/library/genres'),
-	playlists: () => offlineFallback(() => request<PlaylistSummary[]>('/api/playlists'), offlinePlaylists),
+	artists: () => offlineFallback(() => cachedRequest<ArtistTuple[]>('/api/library/artists'), offlineArtists),
+	artist: (id: number) => cachedRequest<ArtistDetail>(`/api/library/artists/${id}`),
+	genres: () => cachedRequest<GenreTuple[]>('/api/library/genres'),
+	playlists: () => offlineFallback(() => cachedRequest<PlaylistSummary[]>('/api/playlists'), offlinePlaylists),
 	playlist: (id: string) =>
-		offlineFallback(() => request<PlaylistDetail>(`/api/playlists/${encodeURIComponent(id)}`), () => offlinePlaylist(id)),
+		offlineFallback(() => cachedRequest<PlaylistDetail>(`/api/playlists/${encodeURIComponent(id)}`), () => offlinePlaylist(id)),
 	addTrackToPlaylist: (playlistId: string, trackId: number) =>
 		request<{ status: string }>(`/api/playlists/${encodeURIComponent(playlistId)}/tracks`, {
 			method: 'POST',
 			body: JSON.stringify({ track_id: trackId })
 		}),
-	audioQuality: () => request<[number | null, number | null, number][]>('/api/stats/audio-quality'),
-	storage: () => offlineFallback(() => request<StorageStats>('/api/stats/storage'), offlineStorageStats),
-	metadataHealth: () => request<MetadataHealth>('/api/stats/metadata-health'),
-	listening: () => request<ListeningStats>('/api/stats/listening'),
-	timeline: () => request<[string, number][]>('/api/stats/timeline'),
-	newReleases: (params = 'limit=50') => request<DiscoveryList>(`/api/discovery/new-releases?${params}`),
-	missingAlbums: (params = 'limit=50') => request<DiscoveryList>(`/api/discovery/missing-albums?${params}`),
-	similarArtists: (params = 'limit=50') => request<DiscoveryList>(`/api/discovery/similar-artists?${params}`),
+	audioQuality: () => cachedRequest<[number | null, number | null, number][]>('/api/stats/audio-quality'),
+	storage: () => offlineFallback(() => cachedRequest<StorageStats>('/api/stats/storage'), offlineStorageStats),
+	metadataHealth: () => cachedRequest<MetadataHealth>('/api/stats/metadata-health'),
+	listening: () => cachedRequest<ListeningStats>('/api/stats/listening'),
+	timeline: () => cachedRequest<[string, number][]>('/api/stats/timeline'),
+	newReleases: (params = 'limit=50') => cachedRequest<DiscoveryList>(`/api/discovery/new-releases?${params}`),
+	missingAlbums: (params = 'limit=50') => cachedRequest<DiscoveryList>(`/api/discovery/missing-albums?${params}`),
+	similarArtists: (params = 'limit=50') => cachedRequest<DiscoveryList>(`/api/discovery/similar-artists?${params}`),
 	refreshDiscovery: (limit = 10) =>
 		request<DiscoveryRefresh>(`/api/discovery/refresh?limit=${limit}`, { method: 'POST' }),
-	rediscovery: () => request<{ tracks: [number, string, string | null, number | null, number, string | null][]; score_example: number }>('/api/recommendations/rediscovery'),
-	currentRotation: () => request<[number, string, string | null, number | null, number | null][]>('/api/recommendations/current-rotation'),
+	rediscovery: () => cachedRequest<{ tracks: [number, string, string | null, number | null, number, string | null][]; score_example: number }>('/api/recommendations/rediscovery'),
+	currentRotation: () => cachedRequest<[number, string, string | null, number | null, number | null][]>('/api/recommendations/current-rotation'),
 	search: (q: string) => offlineFallback(() => request<SearchResult>(`/api/search?q=${encodeURIComponent(q)}`), () => offlineSearch(q))
 };

@@ -12,26 +12,28 @@ const initialStatus: ConnectionStatus = {
 
 export const networkStatus = writable<ConnectionStatus>(initialStatus);
 
+const STATUS_CACHE_MS = 1000;
 let initialized = false;
+let cachedStatus: { status: ConnectionStatus; readAt: number } | null = null;
 
 export async function initNetworkStatus() {
 	if (!browser || initialized) return;
 	initialized = true;
 
 	if (!Capacitor.isNativePlatform()) {
-		networkStatus.set(browserNetworkStatus());
+		setNetworkStatus(browserNetworkStatus());
 		window.addEventListener('online', updateBrowserNetworkStatus);
 		window.addEventListener('offline', updateBrowserNetworkStatus);
 		return;
 	}
 
 	try {
-		networkStatus.set(await Network.getStatus());
+		setNetworkStatus(await Network.getStatus());
 		await Network.addListener('networkStatusChange', (status) => {
-			networkStatus.set(status);
+			setNetworkStatus(status);
 		});
 	} catch (error) {
-		networkStatus.set(browserNetworkStatus());
+		setNetworkStatus(browserNetworkStatus());
 		if (!isUnimplementedError(error)) {
 			console.warn('Unable to initialize Capacitor network status', error);
 		}
@@ -45,19 +47,21 @@ export async function currentNetworkType(): Promise<NetworkType> {
 
 export async function currentNetworkStatus(): Promise<ConnectionStatus> {
 	if (!browser) return initialStatus;
+	if (cachedStatus && Date.now() - cachedStatus.readAt < STATUS_CACHE_MS) return cachedStatus.status;
+
 	if (!Capacitor.isNativePlatform()) {
 		const status = browserNetworkStatus();
-		networkStatus.set(status);
+		setNetworkStatus(status);
 		return status;
 	}
 
 	try {
 		const status = await Network.getStatus();
-		networkStatus.set(status);
+		setNetworkStatus(status);
 		return status;
 	} catch (error) {
 		const status = browserNetworkStatus();
-		networkStatus.set(status);
+		setNetworkStatus(status);
 		if (!isUnimplementedError(error)) {
 			console.warn('Unable to read Capacitor network status', error);
 		}
@@ -70,7 +74,12 @@ export async function isOfflineMode(): Promise<boolean> {
 }
 
 function updateBrowserNetworkStatus() {
-	networkStatus.set(browserNetworkStatus());
+	setNetworkStatus(browserNetworkStatus());
+}
+
+function setNetworkStatus(status: ConnectionStatus) {
+	cachedStatus = { status, readAt: Date.now() };
+	networkStatus.set(status);
 }
 
 function browserNetworkStatus(): ConnectionStatus {
