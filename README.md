@@ -127,6 +127,23 @@ http://localhost:8080
 
 The app checks the backend health endpoint before saving the URL.
 
+## Native Linux Package
+
+Arch Linux:
+
+```bash
+makepkg -si
+```
+
+This builds the Tauri desktop app and installs the `sz0mtify` command, desktop entry, and icons.
+
+Debian and RPM packages can be built from the frontend directory:
+
+```bash
+cd frontend
+npm run tauri build
+```
+
 ## Configuration
 
 The app can be started with very little configuration. These are the values most people care about:
