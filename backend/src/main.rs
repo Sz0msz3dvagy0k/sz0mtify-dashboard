@@ -327,6 +327,10 @@ fn frontend_allowed_origins() -> Vec<HeaderValue> {
         push_origin(&mut origins, "capacitor://localhost");
     }
 
+    push_origin(&mut origins, "tauri://localhost");
+    push_origin(&mut origins, "http://tauri.localhost");
+    push_origin(&mut origins, "https://tauri.localhost");
+
     origins
         .into_iter()
         .filter_map(|origin| origin.parse().ok())
@@ -404,5 +408,17 @@ mod tests {
             normalize_cors_origin("capacitor://localhost/").as_deref(),
             Some("capacitor://localhost")
         );
+    }
+
+    #[test]
+    fn cors_defaults_include_tauri_origins() {
+        let origins: Vec<_> = frontend_allowed_origins()
+            .into_iter()
+            .map(|origin| origin.to_str().expect("valid header value").to_string())
+            .collect();
+
+        assert!(origins.contains(&"tauri://localhost".to_string()));
+        assert!(origins.contains(&"http://tauri.localhost".to_string()));
+        assert!(origins.contains(&"https://tauri.localhost".to_string()));
     }
 }
