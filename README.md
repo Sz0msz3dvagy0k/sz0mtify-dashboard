@@ -157,6 +157,12 @@ makepkg -si
 
 This builds the Tauri desktop app and installs the `sz0mtify` command, desktop entry, and icons.
 
+To hide the native title bar on window managers that provide their own controls, such as Hyprland:
+
+```bash
+HIDE_TITLE=1 sz0mtify
+```
+
 Debian and RPM packages can be built from the frontend directory:
 
 ```bash
@@ -177,6 +183,7 @@ The app can be started with very little configuration. These are the values most
 | `LASTFM_API_KEY` | Enables discovery and Last.fm enrichment. |
 | `FRONTEND_BASE_URL` | Public frontend URL when deploying. |
 | `CAPACITOR` | Keeps iOS app origins allowed. Defaults to `true`. |
+| `HIDE_TITLE` | Set to `1` to hide the native Tauri desktop title bar. |
 
 Subsonic and Last.fm values can also be entered from the settings screen.
 
