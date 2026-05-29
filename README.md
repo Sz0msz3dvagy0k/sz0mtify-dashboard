@@ -11,6 +11,9 @@
   <img alt="SQLite" src="https://img.shields.io/badge/SQLite-local-003b57?style=for-the-badge&logo=sqlite&logoColor=white" />
   <img alt="Capacitor" src="https://img.shields.io/badge/Capacitor-iOS-119eff?style=for-the-badge&logo=capacitor&logoColor=white" />
   <img alt="Docker" src="https://img.shields.io/badge/Docker-ready-2496ed?style=for-the-badge&logo=docker&logoColor=white" />
+  <a href="https://aur.archlinux.org/packages/sz0mtify">
+    <img alt="AUR package" src="https://img.shields.io/aur/version/sz0mtify?style=for-the-badge&logo=archlinux&logoColor=white&label=AUR&color=1793d1" />
+  </a>
 </p>
 
 <p align="center">
@@ -129,7 +132,24 @@ The app checks the backend health endpoint before saving the URL.
 
 ## Native Linux Package
 
-Arch Linux:
+### Arch Linux
+
+<p align="center">
+  <a href="https://aur.archlinux.org/packages/sz0mtify">
+    <img alt="Install sz0mtify from the AUR" src="https://img.shields.io/badge/AUR-sz0mtify-1793d1?style=for-the-badge&logo=archlinux&logoColor=white" />
+  </a>
+  <a href="https://aur.archlinux.org/packages/sz0mtify">
+    <img alt="AUR version" src="https://img.shields.io/aur/version/sz0mtify?style=for-the-badge&label=version&color=2ea043" />
+  </a>
+</p>
+
+Install from the AUR:
+
+```bash
+yay -S sz0mtify
+```
+
+Or build from the local `PKGBUILD`:
 
 ```bash
 makepkg -si
