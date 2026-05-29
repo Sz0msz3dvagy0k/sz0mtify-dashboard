@@ -18,7 +18,10 @@
     "lint": "eslint . && npm run lint:styles",
     "lint:styles": "stylelint \"src/**/*.scss\"",
     "format": "prettier --write .",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "tauri:build:linux-packages": "node scripts/patch-linuxdeploy-gtk.mjs && NO_STRIP=1 tauri build --ci --bundles deb rpm appimage",
+    "tauri:build:appimage": "node scripts/patch-linuxdeploy-gtk.mjs && NO_STRIP=1 tauri build --ci --bundles appimage",
+    "tauri:build:dmg": "tauri build --ci --no-sign --config src-tauri/tauri.macos.conf.json"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.1.0",

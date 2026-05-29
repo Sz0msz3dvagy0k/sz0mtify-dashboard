@@ -163,12 +163,31 @@ To hide the native title bar on window managers that provide their own controls,
 HIDE_TITLE=1 sz0mtify
 ```
 
-Debian and RPM packages can be built from the frontend directory:
+Debian, RPM, and AppImage packages can be built from Arch/Linux:
 
 ```bash
 cd frontend
-npm run tauri build
+npm run tauri:build:linux-packages
 ```
+
+The packages are written to `frontend/src-tauri/target/release/bundle/`.
+The AppImage build sets `NO_STRIP=1` so linuxdeploy does not use its bundled
+old `strip` binary, which cannot read modern Arch `.relr.dyn` ELF sections.
+Building a macOS `.dmg` from Arch/Linux is not supported by Tauri because it
+requires macOS bundle tooling.
+
+### macOS
+
+A `.dmg` installer must be built on macOS:
+
+```bash
+cd frontend
+npm run tauri:build:dmg
+```
+
+The unsigned installer is written to `frontend/src-tauri/target/release/bundle/dmg/`.
+The GitHub Actions workflow `macOS DMG` can also be run manually to upload the `.dmg`
+as a build artifact.
 
 ## Configuration
 
