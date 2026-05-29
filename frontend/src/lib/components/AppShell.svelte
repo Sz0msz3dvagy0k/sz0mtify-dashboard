@@ -2,6 +2,7 @@
 	import { browser } from '$app/environment';
 	import { page } from '$app/stores';
 	import { afterNavigate, goto } from '$app/navigation';
+	import { isTauri } from '@tauri-apps/api/core';
 	import {
 		Album,
 		AudioLines,
@@ -107,6 +108,7 @@
 
 	onMount(async () => {
 		initTheme();
+		document.body.classList.toggle('tauri-desktop', isTauri());
 		const session = await loadStoredSession();
 		if (!session) {
 			authChecked = true;
@@ -138,6 +140,7 @@
 	onDestroy(() => {
 		if (searchTimer) clearTimeout(searchTimer);
 		setPageScrollLock(false);
+		if (browser) document.body.classList.remove('tauri-desktop');
 	});
 
 	async function handleAuthenticated(session: AuthSession) {

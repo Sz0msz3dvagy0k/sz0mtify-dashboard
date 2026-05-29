@@ -36,6 +36,12 @@
   }
 }
 
+body.tauri-desktop .topbar {
+  position: static;
+  background: $color-bg;
+  backdrop-filter: none;
+}
+
 .topbar p,
 .eyebrow {
   margin: 0 0 $space-xs;
@@ -138,6 +144,10 @@
 .page-surface {
   padding: 28px $space-2xl 136px;
   animation: page-in 0.32s ease both;
+}
+
+body.tauri-desktop .page-surface {
+  animation: none;
 }
 
 @keyframes page-in {

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Disc3, UserRound } from 'lucide-svelte';
 	import { initials } from '$lib/format';
-	import { loadCachedImage } from '$lib/imageCache';
+	import { cachedImageSrc, loadCachedImage } from '$lib/imageCache';
 
 	export let src: string | null = null;
 	export let fallbackSrc: string | null = null;
@@ -19,15 +19,15 @@
 	$: if (src !== lastSrc) {
 		lastSrc = src;
 		failedPrimary = false;
-		primaryDisplaySrc = null;
-		if (src) void resolvePrimary(src, ++primaryRequestId);
+		primaryDisplaySrc = cachedImageSrc(src);
+		if (src && !primaryDisplaySrc) void resolvePrimary(src, ++primaryRequestId);
 	}
 	$: wantedFallbackSrc = !src || failedPrimary ? fallbackSrc : null;
 	$: if (wantedFallbackSrc !== lastFallbackSrc) {
 		lastFallbackSrc = wantedFallbackSrc;
 		failedFallback = false;
-		fallbackDisplaySrc = null;
-		if (wantedFallbackSrc) void resolveFallback(wantedFallbackSrc, ++fallbackRequestId);
+		fallbackDisplaySrc = cachedImageSrc(wantedFallbackSrc);
+		if (wantedFallbackSrc && !fallbackDisplaySrc) void resolveFallback(wantedFallbackSrc, ++fallbackRequestId);
 	}
 
 	async function resolvePrimary(value: string, requestId: number) {
@@ -50,9 +50,9 @@
 </script>
 
 {#if src && !failedPrimary && primaryDisplaySrc}
-	<img class="art-image" src={primaryDisplaySrc} {alt} loading="lazy" draggable="false" on:error={() => (failedPrimary = true)} />
+	<img class="art-image" src={primaryDisplaySrc} {alt} decoding="async" draggable="false" on:error={() => (failedPrimary = true)} />
 {:else if wantedFallbackSrc && !failedFallback && fallbackDisplaySrc}
-	<img class="art-image" src={fallbackDisplaySrc} {alt} loading="lazy" draggable="false" on:error={() => (failedFallback = true)} />
+	<img class="art-image" src={fallbackDisplaySrc} {alt} decoding="async" draggable="false" on:error={() => (failedFallback = true)} />
 {:else}
 	<div class:artist={kind === 'artist'} class="art-fallback" aria-label={alt}>
 		{#if kind === 'artist'}

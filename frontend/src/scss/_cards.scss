@@ -153,6 +153,11 @@
     background 0.18s ease;
 }
 
+body.tauri-desktop .media-card {
+  contain: layout paint;
+  transition: none;
+}
+
 .media-cover {
   aspect-ratio: 1;
   overflow: hidden;
@@ -171,6 +176,15 @@
 .media-card:hover .art-image,
 .media-card:hover .art-fallback {
   transform: scale(1.045);
+}
+
+body.tauri-desktop .media-card:hover {
+  transform: none;
+}
+
+body.tauri-desktop .media-card:hover .art-image,
+body.tauri-desktop .media-card:hover .art-fallback {
+  transform: none;
 }
 
 .art-fallback {

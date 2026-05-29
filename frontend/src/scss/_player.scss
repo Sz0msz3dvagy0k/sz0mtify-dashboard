@@ -26,6 +26,12 @@
     transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+body.tauri-desktop .player-bar {
+  background: $color-panel;
+  backdrop-filter: none;
+  box-shadow: none;
+}
+
 .player-bar.expanded {
   top: max(18px, env(safe-area-inset-top));
   min-height: auto;

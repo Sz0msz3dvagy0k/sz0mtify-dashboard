@@ -9,12 +9,18 @@ fn main() {
 
 #[cfg(target_os = "linux")]
 fn configure_linux_webview_acceleration() {
-    if std::env::var_os("WAYLAND_DISPLAY").is_some()
-        && is_nvidia_session()
-        && std::env::var_os("__NV_DISABLE_EXPLICIT_SYNC").is_none()
-    {
-        // WebKitGTK's dmabuf renderer can trip NVIDIA's explicit-sync path on Wayland.
-        std::env::set_var("__NV_DISABLE_EXPLICIT_SYNC", "1");
+    if std::env::var_os("WAYLAND_DISPLAY").is_some() && is_nvidia_session() {
+        if std::env::var_os("__NV_DISABLE_EXPLICIT_SYNC").is_none() {
+            // Required on this WebKitGTK/NVIDIA path to avoid Wayland protocol failures at startup.
+            std::env::set_var("__NV_DISABLE_EXPLICIT_SYNC", "1");
+        }
+
+        if std::env::var_os("WEBKIT_SKIA_GPU_PAINTING_THREADS").is_none() {
+            // NVIDIA 595 can crash WebKit's threaded Skia GPU worker during heavy scrolling.
+            // A zero worker count keeps GPU rendering enabled, but performs Skia GPU painting
+            // on WebKit's main rendering thread instead of the SkiaGPUWorker pool.
+            std::env::set_var("WEBKIT_SKIA_GPU_PAINTING_THREADS", "0");
+        }
     }
 }
 
